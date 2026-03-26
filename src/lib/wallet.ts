@@ -1,13 +1,20 @@
-import * as bip39 from 'bip39';
-import BIP32Factory, { type BIP32API } from 'bip32';
+import { generateMnemonic as genMnemonic, mnemonicToSeedSync, validateMnemonic as valMnemonic } from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english';
+import { HDKey } from '@scure/bip32';
 import * as ecc from '@bitcoinerlab/secp256k1';
 import { payments } from 'bitcoinjs-lib';
 import { Buffer } from 'buffer';
-import CryptoJS from 'crypto-js';
+import { pbkdf2 } from '@noble/hashes/pbkdf2';
+import { sha256 } from '@noble/hashes/sha2';
+import { gcm } from '@noble/ciphers/aes';
+import { randomBytes } from '@noble/ciphers/utils';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import * as SecureStore from 'expo-secure-store';
 import { smartiecoin, DERIVATION_PATH } from './network';
 
-const bip32: BIP32API = BIP32Factory(ecc);
+// Initialize bitcoinjs-lib with secp256k1
+import { initEccLib } from 'bitcoinjs-lib';
+initEccLib(ecc);
 
 const STORE_KEY = 'smt_wallet';
 
@@ -19,7 +26,7 @@ export interface WalletData {
 
 // Generate a new 12-word mnemonic
 export function generateMnemonic(): string {
-  return bip39.generateMnemonic(128);
+  return genMnemonic(wordlist, 128);
 }
 
 // Derive address and private key from mnemonic
@@ -28,16 +35,19 @@ export function deriveFromMnemonic(mnemonic: string): {
   privateKey: Uint8Array;
   publicKey: Uint8Array;
 } {
-  const seed = bip39.mnemonicToSeedSync(mnemonic);
-  const root = bip32.fromSeed(Buffer.from(seed), smartiecoin);
-  const child = root.derivePath(DERIVATION_PATH);
+  const seed = mnemonicToSeedSync(mnemonic);
+  const root = HDKey.fromMasterSeed(seed, {
+    public: smartiecoin.bip32.public,
+    private: smartiecoin.bip32.private,
+  });
+  const child = root.derive(DERIVATION_PATH);
 
   if (!child.privateKey) {
     throw new Error('Failed to derive private key');
   }
 
   const { address } = payments.p2pkh({
-    pubkey: Buffer.from(child.publicKey),
+    pubkey: Buffer.from(child.publicKey!),
     network: smartiecoin,
   });
 
@@ -48,26 +58,54 @@ export function deriveFromMnemonic(mnemonic: string): {
   return {
     address,
     privateKey: child.privateKey,
-    publicKey: child.publicKey,
+    publicKey: child.publicKey!,
   };
 }
 
 // Validate a mnemonic phrase
 export function validateMnemonic(mnemonic: string): boolean {
-  return bip39.validateMnemonic(mnemonic.trim().toLowerCase());
+  return valMnemonic(mnemonic.trim().toLowerCase(), wordlist);
 }
 
-// Encrypt with AES (password-based, CryptoJS uses PBKDF2 internally)
+// Encrypt with AES-256-GCM + PBKDF2 (pure JS, no Node.js deps)
 export function encrypt(plaintext: string, password: string): string {
-  return CryptoJS.AES.encrypt(plaintext, password).toString();
+  const salt = randomBytes(16);
+  const nonce = randomBytes(12);
+  const key = pbkdf2(sha256, new TextEncoder().encode(password), salt, {
+    c: 100_000,
+    dkLen: 32,
+  });
+  const aes = gcm(key, nonce);
+  const ciphertext = aes.encrypt(new TextEncoder().encode(plaintext));
+
+  // Combine: salt(16) + nonce(12) + ciphertext
+  const combined = new Uint8Array(salt.length + nonce.length + ciphertext.length);
+  combined.set(salt, 0);
+  combined.set(nonce, salt.length);
+  combined.set(ciphertext, salt.length + nonce.length);
+
+  return bytesToHex(combined);
 }
 
-// Decrypt with AES
-export function decrypt(ciphertext: string, password: string): string {
-  const bytes = CryptoJS.AES.decrypt(ciphertext, password);
-  const result = bytes.toString(CryptoJS.enc.Utf8);
-  if (!result) throw new Error('Wrong password');
-  return result;
+// Decrypt with AES-256-GCM + PBKDF2
+export function decrypt(encryptedHex: string, password: string): string {
+  const combined = hexToBytes(encryptedHex);
+  const salt = combined.slice(0, 16);
+  const nonce = combined.slice(16, 28);
+  const ciphertext = combined.slice(28);
+
+  const key = pbkdf2(sha256, new TextEncoder().encode(password), salt, {
+    c: 100_000,
+    dkLen: 32,
+  });
+  const aes = gcm(key, nonce);
+
+  try {
+    const decrypted = aes.decrypt(ciphertext);
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    throw new Error('Wrong password');
+  }
 }
 
 // Create and encrypt a new wallet
@@ -80,7 +118,7 @@ export function createWallet(password: string): {
 
   const encryptedMnemonic = encrypt(mnemonic, password);
   const encryptedPrivKey = encrypt(
-    Buffer.from(privateKey).toString('hex'),
+    bytesToHex(privateKey),
     password
   );
 
@@ -101,7 +139,7 @@ export function importWallet(mnemonic: string, password: string): WalletData {
 
   const encryptedMnemonic = encrypt(cleaned, password);
   const encryptedPrivKey = encrypt(
-    Buffer.from(privateKey).toString('hex'),
+    bytesToHex(privateKey),
     password
   );
 
@@ -117,7 +155,7 @@ export function unlockWallet(
   const privKeyHex = decrypt(walletData.encryptedPrivKey, password);
 
   return {
-    privateKey: Uint8Array.from(Buffer.from(privKeyHex, 'hex')),
+    privateKey: hexToBytes(privKeyHex),
     mnemonic,
   };
 }
