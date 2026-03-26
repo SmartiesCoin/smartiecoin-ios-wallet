@@ -17,7 +17,6 @@
     "@scure/bip39": "^2.0.1",
     "bitcoinjs-lib": "^6.1.7",
     "buffer": "^6.0.3",
-    "ecpair": "^2.1.0",
     "expo": "~52.0.0",
     "expo-asset": "~11.0.5",
     "expo-clipboard": "~7.0.0",

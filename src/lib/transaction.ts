@@ -1,17 +1,29 @@
 import { Psbt, Transaction } from 'bitcoinjs-lib';
-import ECPairFactory, { type ECPairAPI } from 'ecpair';
 import * as ecc from '@bitcoinerlab/secp256k1';
 import { Buffer } from 'buffer';
 import { smartiecoin, COIN, DEFAULT_FEE_RATE, API_BASE } from './network';
 import { fetchUtxos } from './api';
-
-const ECPair: ECPairAPI = ECPairFactory(ecc);
 
 export interface UTXO {
   txid: string;
   outputIndex: number;
   satoshis: number;
   script: string;
+}
+
+// Create a Psbt-compatible signer from a raw private key
+function createSigner(privateKey: Uint8Array) {
+  const pubKey = ecc.pointFromScalar(privateKey);
+  if (!pubKey) throw new Error('Invalid private key');
+
+  return {
+    publicKey: Buffer.from(pubKey),
+    sign(hash: Buffer): Buffer {
+      const sig = ecc.sign(hash, privateKey);
+      if (!sig) throw new Error('Signing failed');
+      return Buffer.from(sig);
+    },
+  };
 }
 
 // Estimate P2PKH transaction size
@@ -73,10 +85,7 @@ export async function buildTransaction(params: {
     }
   }
 
-  const keyPair = ECPair.fromPrivateKey(Buffer.from(privateKey), {
-    network: smartiecoin,
-  });
-
+  const signer = createSigner(privateKey);
   const psbt = new Psbt({ network: smartiecoin });
 
   for (const utxo of selected) {
@@ -101,7 +110,7 @@ export async function buildTransaction(params: {
   }
 
   for (let i = 0; i < selected.length; i++) {
-    psbt.signInput(i, keyPair);
+    psbt.signInput(i, signer);
   }
 
   psbt.finalizeAllInputs();
