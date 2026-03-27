@@ -2,9 +2,10 @@ import SwiftUI
 
 struct NetworkStatusView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
-    let spvClient: SPVClient
+    @ObservedObject var spvClient: SPVClient
     let onBack: () -> Void
     let onAddPeer: (String) -> Void
+    let onStartSPV: () -> Void
 
     @State private var manualPeerInput = ""
     @State private var showAddPeer = false
@@ -42,6 +43,18 @@ struct NetworkStatusView: View {
 
             ScrollView {
                 VStack(spacing: 20) {
+                    // Start button if not running
+                    if spvClient.syncState == .disconnected {
+                        Button(action: onStartSPV) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "bolt.fill")
+                                Text("Start P2P Network")
+                            }
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .padding(.horizontal, sizeClass == .regular ? 40 : 24)
+                    }
+
                     // Sync Status Card
                     syncStatusCard
 

@@ -104,9 +104,9 @@ struct ContentView: View {
                 NetworkStatusView(
                     spvClient: viewModel.spvClient,
                     onBack: { viewModel.navigate(to: .dashboard) },
-                    onAddPeer: { viewModel.addPeersFromText($0) }
+                    onAddPeer: { viewModel.addPeersFromText($0) },
+                    onStartSPV: { viewModel.startSPVIfNeeded() }
                 )
-                .onAppear { viewModel.startSPVIfNeeded() }
             }
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.screen)
