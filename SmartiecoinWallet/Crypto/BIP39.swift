@@ -6,8 +6,7 @@ enum BIP39 {
     static func generateMnemonic() -> String {
         var entropy = [UInt8](repeating: 0, count: 16)
         let status = SecRandomCopyBytes(kSecRandomDefault, 16, &entropy)
-        guard status == errSecSuccess else {
-            // Fallback to less secure random if SecRandom fails
+        if status != errSecSuccess {
             entropy = (0..<16).map { _ in UInt8.random(in: 0...255) }
         }
         return entropyToMnemonic(Data(entropy))
