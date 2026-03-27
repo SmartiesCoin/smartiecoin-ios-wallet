@@ -1,53 +1,77 @@
-name: Build iOS IPA
+name: Build iOS
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-ipa:
-    name: Build unsigned IPA
-    runs-on: macos-14
+  build:
+    name: Build SmartiecoinWallet (Swift Native)
+    runs-on: macos-15
     timeout-minutes: 30
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Generate Xcode project
+        run: xcodegen generate
 
-      - name: Generate iOS project (Expo prebuild)
-        run: npx expo prebuild --platform ios --no-install
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project SmartiecoinWallet.xcodeproj \
+            -scheme SmartiecoinWallet \
+            -skipPackagePluginValidation
 
-      - name: Install CocoaPods
-        run: cd ios && pod install
+      - name: Build for iPhone Simulator
+        run: |
+          xcodebuild build \
+            -project SmartiecoinWallet.xcodeproj \
+            -scheme SmartiecoinWallet \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -configuration Release \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
 
-      - name: Build unsigned .app
+      - name: Build for iPad Simulator
+        run: |
+          xcodebuild build \
+            -project SmartiecoinWallet.xcodeproj \
+            -scheme SmartiecoinWallet \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4),OS=latest' \
+            -configuration Release \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build unsigned .app (Release)
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           xcodebuild \
-            -workspace ios/SmartiecoinWallet.xcworkspace \
+            -project SmartiecoinWallet.xcodeproj \
             -scheme SmartiecoinWallet \
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \
             -derivedDataPath build \
+            -skipPackagePluginValidation \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            ENABLE_BITCODE=NO
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Package IPA
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           APP_PATH=$(find build -name "*.app" -type d | head -1)
           mkdir -p Payload
@@ -56,28 +80,33 @@ jobs:
           rm -rf Payload
 
       - name: Upload IPA artifact
+        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: SmartiecoinWallet-IPA
           path: SmartiecoinWallet.ipa
           retention-days: 90
 
-      - name: Create Release (on tag push)
+      - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: SmartiecoinWallet.ipa
           body: |
-            ## Smartiecoin Wallet iOS
+            ## Smartiecoin Wallet v2.0.0 (Native SwiftUI)
 
             ### Installation (Sideload)
             1. Download `SmartiecoinWallet.ipa`
             2. Install using **AltStore** or **Sideloadly**
             3. Trust the app in Settings > General > Device Management
 
-            ### What's included
+            ### What's New
+            - Native SwiftUI rewrite (no React Native)
+            - SPV P2P client - zero server dependency
+            - Native iPad support with adaptive layouts
+            - Keychain-based secure storage
+            - P2P network status with manual peer management
             - Create / Import wallet (12-word recovery phrase)
-            - Send & Receive SMT
+            - Send & Receive SMT with QR codes
             - Transaction history
-            - QR code for receiving
           generate_release_notes: true
