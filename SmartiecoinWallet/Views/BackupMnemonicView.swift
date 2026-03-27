@@ -6,6 +6,7 @@ struct BackupMnemonicView: View {
     let onContinue: () -> Void
 
     @State private var showConfirmation = false
+    @State private var copied = false
 
     private var words: [String] {
         mnemonic.split(separator: " ").map(String.init)
@@ -71,7 +72,17 @@ struct BackupMnemonicView: View {
                         )
                     }
                 }
-                .padding(.bottom, 32)
+                .padding(.bottom, 24)
+
+                // Copy recovery phrase
+                Button(action: copyMnemonic) {
+                    HStack(spacing: 8) {
+                        Image(systemName: copied ? "checkmark.circle.fill" : "doc.on.doc")
+                        Text(copied ? "Copied!" : "Copy Recovery Phrase")
+                    }
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .padding(.bottom, 12)
 
                 Button(action: { showConfirmation = true }) {
                     Text("I've Saved My Phrase")
@@ -84,6 +95,14 @@ struct BackupMnemonicView: View {
             Button("Yes, I saved it") { onContinue() }
         } message: {
             Text("If you lose this phrase, you will lose access to your wallet forever.")
+        }
+    }
+
+    private func copyMnemonic() {
+        UIPasteboard.general.string = mnemonic
+        withAnimation { copied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { copied = false }
         }
     }
 }
