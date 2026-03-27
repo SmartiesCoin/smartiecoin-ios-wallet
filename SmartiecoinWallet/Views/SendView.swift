@@ -255,7 +255,7 @@ struct SendView: View {
         }
 
         guard val <= availableSmt else {
-            error = "Insufficient funds"
+            error = "Insufficient funds. If you just sent a transaction, wait for it to confirm (~1 min)."
             return
         }
 

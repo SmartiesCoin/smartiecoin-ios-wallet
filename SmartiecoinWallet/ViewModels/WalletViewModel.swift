@@ -161,17 +161,23 @@ final class WalletViewModel: ObservableObject {
         guard let address = walletData?.address else { return }
         spvStarted = true
 
-        let savedPeers = UserDefaults.standard.stringArray(forKey: "manual_peers") ?? []
-        for peerStr in savedPeers {
-            let parts = peerStr.split(separator: ":")
-            guard parts.count >= 1 else { continue }
-            let host = String(parts[0])
-            let port = parts.count > 1 ? UInt16(parts[1]) ?? P2PConfig.port : P2PConfig.port
-            spvClient.addManualPeer(host: host, port: port)
-        }
+        // Defer to next run loop to avoid SwiftUI crash
+        // (button removes itself during its own action)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
 
-        SPVWalletService.client = spvClient
-        spvClient.start(watchAddresses: [address])
+            let savedPeers = UserDefaults.standard.stringArray(forKey: "manual_peers") ?? []
+            for peerStr in savedPeers {
+                let parts = peerStr.split(separator: ":")
+                guard parts.count >= 1 else { continue }
+                let host = String(parts[0])
+                let port = parts.count > 1 ? UInt16(parts[1]) ?? P2PConfig.port : P2PConfig.port
+                self.spvClient.addManualPeer(host: host, port: port)
+            }
+
+            SPVWalletService.client = self.spvClient
+            self.spvClient.start(watchAddresses: [address])
+        }
     }
 
     func addPeersFromText(_ text: String) {

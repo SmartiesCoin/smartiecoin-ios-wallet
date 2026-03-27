@@ -43,15 +43,21 @@ struct NetworkStatusView: View {
 
             ScrollView {
                 VStack(spacing: 20) {
-                    // Start button if not running
-                    if spvClient.syncState == .disconnected {
+                    // Start button
+                    if spvClient.syncState == .disconnected || spvClient.syncState == .connecting {
                         Button(action: onStartSPV) {
                             HStack(spacing: 8) {
-                                Image(systemName: "bolt.fill")
-                                Text("Start P2P Network")
+                                if spvClient.syncState == .connecting {
+                                    ProgressView()
+                                        .tint(AppColors.text)
+                                } else {
+                                    Image(systemName: "bolt.fill")
+                                }
+                                Text(spvClient.syncState == .connecting ? "Connecting..." : "Start P2P Network")
                             }
                         }
-                        .buttonStyle(PrimaryButtonStyle())
+                        .buttonStyle(PrimaryButtonStyle(disabled: spvClient.syncState == .connecting))
+                        .disabled(spvClient.syncState == .connecting)
                         .padding(.horizontal, sizeClass == .regular ? 40 : 24)
                     }
 
