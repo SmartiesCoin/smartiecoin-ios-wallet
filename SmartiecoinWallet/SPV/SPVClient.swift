@@ -57,22 +57,31 @@ final class SPVClient {
             syncState = .connecting
         }
 
-        // Build bloom filter for our addresses
-        buildBloomFilter()
+        do {
+            // Build bloom filter for our addresses
+            buildBloomFilter()
 
-        // Set up peer manager callbacks
-        setupPeerCallbacks()
+            // Set up peer manager callbacks
+            setupPeerCallbacks()
 
-        // Add manual peers
-        for (host, port) in manualPeers {
-            peerManager.addPeerAddress(host: host, port: port)
+            // Add manual peers
+            for (host, port) in manualPeers {
+                peerManager.addPeerAddress(host: host, port: port)
+            }
+
+            // Start connecting
+            peerManager.start()
+
+            // Start periodic sync check
+            await MainActor.run {
+                startSyncTimer()
+            }
+        } catch {
+            await MainActor.run {
+                syncState = .error
+                lastError = error.localizedDescription
+            }
         }
-
-        // Start connecting
-        peerManager.start()
-
-        // Start periodic sync check
-        startSyncTimer()
     }
 
     func stop() {

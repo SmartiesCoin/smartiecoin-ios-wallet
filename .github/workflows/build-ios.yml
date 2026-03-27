@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    name: Build SmartiecoinWallet (Swift Native)
+    name: Build Smartiecoin Wallets
     runs-on: macos-15
     timeout-minutes: 30
 
@@ -30,83 +30,132 @@ jobs:
         run: |
           xcodebuild -resolvePackageDependencies \
             -project SmartiecoinWallet.xcodeproj \
-            -scheme SmartiecoinWallet \
+            -scheme SmartiecoinNode \
             -skipPackagePluginValidation
 
-      - name: Build for iPhone Simulator
+      - name: Build Smartiecoin Node (SPV) - iPhone
         run: |
           xcodebuild build \
             -project SmartiecoinWallet.xcodeproj \
-            -scheme SmartiecoinWallet \
+            -scheme SmartiecoinNode \
             -sdk iphonesimulator \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
             -configuration Release \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Build for iPad Simulator
+      - name: Build Smartiecoin Lite (API) - iPhone
         run: |
           xcodebuild build \
             -project SmartiecoinWallet.xcodeproj \
-            -scheme SmartiecoinWallet \
+            -scheme SmartiecoinLite \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -configuration Release \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build Smartiecoin Node - iPad
+        run: |
+          xcodebuild build \
+            -project SmartiecoinWallet.xcodeproj \
+            -scheme SmartiecoinNode \
             -sdk iphonesimulator \
             -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4),OS=latest' \
             -configuration Release \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Build unsigned .app (Release)
+      # Release builds (only on tag push)
+      - name: Build Smartiecoin Node IPA
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           xcodebuild \
             -project SmartiecoinWallet.xcodeproj \
-            -scheme SmartiecoinWallet \
+            -scheme SmartiecoinNode \
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \
-            -derivedDataPath build \
+            -derivedDataPath build-node \
             -skipPackagePluginValidation \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Package IPA
+      - name: Build Smartiecoin Lite IPA
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          APP_PATH=$(find build -name "*.app" -type d | head -1)
+          xcodebuild \
+            -project SmartiecoinWallet.xcodeproj \
+            -scheme SmartiecoinLite \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination generic/platform=iOS \
+            -derivedDataPath build-lite \
+            -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package IPAs
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # Smartiecoin Node IPA
+          APP_PATH=$(find build-node -name "*.app" -type d | head -1)
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
-          zip -r SmartiecoinWallet.ipa Payload
+          zip -r SmartiecoinNode.ipa Payload
           rm -rf Payload
 
-      - name: Upload IPA artifact
+          # Smartiecoin Lite IPA
+          APP_PATH=$(find build-lite -name "*.app" -type d | head -1)
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r SmartiecoinLite.ipa Payload
+          rm -rf Payload
+
+      - name: Upload artifacts
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: SmartiecoinWallet-IPA
-          path: SmartiecoinWallet.ipa
+          name: SmartiecoinWallet-IPAs
+          path: |
+            SmartiecoinNode.ipa
+            SmartiecoinLite.ipa
           retention-days: 90
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: SmartiecoinWallet.ipa
+          files: |
+            SmartiecoinNode.ipa
+            SmartiecoinLite.ipa
           body: |
-            ## Smartiecoin Wallet v2.0.0 (Native SwiftUI)
+            ## Smartiecoin Wallet v2.0.0
+
+            ### Two versions included:
+
+            **Smartiecoin Node** (SPV) - Connects directly to the blockchain via P2P
+            - Zero server dependency
+            - Syncs block headers from Smartiecoin nodes
+            - BIP37 Bloom filter for transaction privacy
+            - Manual peer management (paste addnode= format)
+
+            **Smartiecoin Lite** (API) - Uses wallet.smartiecoin.com API
+            - Instant sync, no waiting
+            - Lower battery/data usage
+            - Depends on API server availability
+
+            ### Both versions include:
+            - Native SwiftUI for iPhone and iPad
+            - 12-word recovery phrase (BIP39)
+            - Send & Receive SMT with QR codes
+            - iOS Keychain encrypted storage
+            - Transaction history
 
             ### Installation (Sideload)
-            1. Download `SmartiecoinWallet.ipa`
+            1. Download the IPA you prefer
             2. Install using **AltStore** or **Sideloadly**
             3. Trust the app in Settings > General > Device Management
-
-            ### What's New
-            - Native SwiftUI rewrite (no React Native)
-            - SPV P2P client - zero server dependency
-            - Native iPad support with adaptive layouts
-            - Keychain-based secure storage
-            - P2P network status with manual peer management
-            - Create / Import wallet (12-word recovery phrase)
-            - Send & Receive SMT with QR codes
-            - Transaction history
           generate_release_notes: true

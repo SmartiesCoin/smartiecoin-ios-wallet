@@ -34,9 +34,10 @@ final class PeerConnection: @unchecked Sendable {
     // MARK: - Connection Lifecycle
 
     func connect() {
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: port)!
+            port: nwPort
         )
 
         let params = NWParameters.tcp

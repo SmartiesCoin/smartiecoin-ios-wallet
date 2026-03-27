@@ -50,10 +50,12 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 24)
 
+                    #if WALLET_MODE_SPV
                     // SPV Sync Banner
                     if let spv = spvClient, spv.syncState != .synchronized {
                         syncBanner(spv: spv)
                     }
+                    #endif
 
                     if sizeClass == .regular {
                         // iPad: side-by-side layout
@@ -65,7 +67,9 @@ struct DashboardView: View {
                             .frame(maxWidth: .infinity)
 
                             VStack(spacing: 24) {
+                                #if WALLET_MODE_SPV
                                 networkCard
+                                #endif
                                 statsCard
                             }
                             .frame(maxWidth: .infinity)
@@ -75,7 +79,9 @@ struct DashboardView: View {
                         VStack(spacing: 24) {
                             balanceCard
                             actionButtons
+                            #if WALLET_MODE_SPV
                             networkCard
+                            #endif
                             statsCard
                         }
                     }

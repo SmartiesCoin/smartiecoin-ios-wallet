@@ -53,6 +53,10 @@ final class WalletViewModel {
     // MARK: - SPV Client Management
 
     func startSPV() {
+        #if WALLET_MODE_API
+        startBalanceRefresh()
+        return
+        #endif
         guard let address = walletData?.address else { return }
 
         // Load saved manual peers
@@ -83,7 +87,8 @@ final class WalletViewModel {
     /// - 103.13.114.93
     /// - 103.13.114.93:9999
     func addPeersFromText(_ text: String) {
-        let lines = text.components(separatedBy: .newlines)
+        // Also support single peer from the alert dialog
+        let lines = text.components(separatedBy: CharacterSet.newlines.union(.init(charactersIn: ";")))
         var savedPeers = UserDefaults.standard.stringArray(forKey: "manual_peers") ?? []
 
         for line in lines {
@@ -126,18 +131,22 @@ final class WalletViewModel {
         loading = true
         error = nil
 
-        Task { @MainActor in
+        Task.detached(priority: .userInitiated) { [self] in
             do {
                 let result = try WalletService.createWallet(password: password)
                 try WalletService.saveWallet(result.walletData)
-                walletData = result.walletData
-                mnemonic = result.mnemonic
-                privateKey = result.privateKey
-                loading = false
-                navigate(to: .backup)
+                await MainActor.run {
+                    walletData = result.walletData
+                    mnemonic = result.mnemonic
+                    privateKey = result.privateKey
+                    loading = false
+                    navigate(to: .backup)
+                }
             } catch {
-                self.error = error.localizedDescription
-                loading = false
+                await MainActor.run {
+                    self.error = error.localizedDescription
+                    loading = false
+                }
             }
         }
     }
@@ -148,19 +157,23 @@ final class WalletViewModel {
         loading = true
         error = nil
 
-        Task { @MainActor in
+        Task.detached(priority: .userInitiated) { [self] in
             do {
                 let result = try WalletService.importWallet(mnemonic: mnemonic, password: password)
                 try WalletService.saveWallet(result.walletData)
-                walletData = result.walletData
-                privateKey = result.privateKey
-                self.mnemonic = nil
-                loading = false
-                navigate(to: .dashboard)
-                startSPV()
+                await MainActor.run {
+                    walletData = result.walletData
+                    privateKey = result.privateKey
+                    self.mnemonic = nil
+                    loading = false
+                    navigate(to: .dashboard)
+                    startSPV()
+                }
             } catch {
-                self.error = error.localizedDescription
-                loading = false
+                await MainActor.run {
+                    self.error = error.localizedDescription
+                    loading = false
+                }
             }
         }
     }
@@ -172,16 +185,21 @@ final class WalletViewModel {
         loading = true
         error = nil
 
-        Task { @MainActor in
+        let wd = walletData
+        Task.detached(priority: .userInitiated) { [self] in
             do {
-                let result = try WalletService.unlockWallet(walletData: walletData, password: password)
-                privateKey = result.privateKey
-                loading = false
-                navigate(to: .dashboard)
-                startSPV()
+                let result = try WalletService.unlockWallet(walletData: wd, password: password)
+                await MainActor.run {
+                    privateKey = result.privateKey
+                    loading = false
+                    navigate(to: .dashboard)
+                    startSPV()
+                }
             } catch {
-                self.error = error.localizedDescription
-                loading = false
+                await MainActor.run {
+                    self.error = error.localizedDescription
+                    loading = false
+                }
             }
         }
     }
@@ -200,14 +218,21 @@ final class WalletViewModel {
         navigate(to: .landing)
     }
 
-    // MARK: - Balance (from SPV)
+    // MARK: - Balance
 
     func refreshBalance() {
         guard let address = walletData?.address else { return }
 
-        Task { @MainActor in
+        Task {
+            #if WALLET_MODE_API
+            do {
+                let bal = try await APIService.fetchBalance(address: address)
+                await MainActor.run { self.balance = bal }
+            } catch {}
+            #else
             let bal = await SPVWalletService.fetchBalance(address: address)
-            self.balance = bal
+            await MainActor.run { self.balance = bal }
+            #endif
         }
     }
 
@@ -224,7 +249,7 @@ final class WalletViewModel {
         balanceTimer = nil
     }
 
-    // MARK: - Send Transaction (via SPV P2P)
+    // MARK: - Send Transaction
 
     func sendTransaction(toAddress: String, amount: String) async throws -> (txid: String, fee: Int) {
         guard let address = walletData?.address, let privateKey else {
@@ -235,12 +260,21 @@ final class WalletViewModel {
             throw WalletError.transactionFailed("Invalid amount")
         }
 
+        #if WALLET_MODE_API
+        let result = try await WalletService.sendTransaction(
+            fromAddress: address,
+            toAddress: toAddress,
+            amountDuffs: amountDuffs,
+            privateKey: privateKey
+        )
+        #else
         let result = try await SPVWalletService.sendTransaction(
             fromAddress: address,
             toAddress: toAddress,
             amountDuffs: amountDuffs,
             privateKey: privateKey
         )
+        #endif
 
         refreshBalance()
         return result

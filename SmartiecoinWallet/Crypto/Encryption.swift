@@ -1,43 +1,33 @@
 import Foundation
 import CryptoKit
+import CommonCrypto
 
 enum WalletEncryption {
     static func encrypt(plaintext: String, password: String) throws -> String {
         let salt = generateRandomBytes(count: 16)
-        let nonce = generateRandomBytes(count: 12)
-        let key = deriveKey(password: password, salt: salt)
+        let key = try deriveKey(password: password, salt: salt)
 
-        let sealedBox = try AES.GCM.seal(
-            Data(plaintext.utf8),
-            using: key,
-            nonce: try AES.GCM.Nonce(data: nonce)
-        )
+        let sealedBox = try AES.GCM.seal(Data(plaintext.utf8), using: key)
 
-        guard let ciphertext = sealedBox.combined else {
+        guard let combined = sealedBox.combined else {
             throw WalletError.encryptionFailed
         }
 
-        // Format: salt(16) + nonce(12) + ciphertext+tag
-        // AES.GCM.seal combined = nonce(12) + ciphertext + tag(16)
-        // We store: salt(16) + combined
+        // Format: salt(16) + combined(nonce(12) + ciphertext + tag(16))
         var result = Data()
         result.append(salt)
-        result.append(ciphertext)
+        result.append(combined)
         return result.hexString
     }
 
     static func decrypt(encryptedHex: String, password: String) throws -> String {
-        guard let combined = Data(hexString: encryptedHex) else {
+        guard let data = Data(hexString: encryptedHex), data.count > 16 else {
             throw WalletError.decryptionFailed
         }
 
-        guard combined.count > 16 else {
-            throw WalletError.decryptionFailed
-        }
-
-        let salt = combined.prefix(16)
-        let sealedData = combined.dropFirst(16)
-        let key = deriveKey(password: password, salt: salt)
+        let salt = data.prefix(16)
+        let sealedData = data.dropFirst(16)
+        let key = try deriveKey(password: password, salt: Data(salt))
 
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: sealedData)
@@ -46,54 +36,44 @@ enum WalletEncryption {
                 throw WalletError.decryptionFailed
             }
             return text
+        } catch is WalletError {
+            throw WalletError.wrongPassword
         } catch {
             throw WalletError.wrongPassword
         }
     }
 
-    private static func deriveKey(password: String, salt: Data) -> SymmetricKey {
+    // Use CommonCrypto's native PBKDF2 - much faster than pure Swift
+    private static func deriveKey(password: String, salt: Data) throws -> SymmetricKey {
         let passwordData = Data(password.utf8)
-        let derivedKey = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: SymmetricKey(data: pbkdf2(password: passwordData, salt: salt)),
-            outputByteCount: 32
-        )
-        return derivedKey
-    }
+        var derivedBytes = [UInt8](repeating: 0, count: 32)
 
-    private static func pbkdf2(password: Data, salt: Data, iterations: Int = 100_000, keyLength: Int = 32) -> Data {
-        var result = Data(count: keyLength)
-        var block = 1
-        var derived = Data()
-
-        while derived.count < keyLength {
-            var u = hmacSHA256(key: password, data: salt + withUnsafeBytes(of: UInt32(block).bigEndian) { Data($0) })
-            var f = u
-
-            for _ in 1..<iterations {
-                u = hmacSHA256(key: password, data: u)
-                for j in 0..<f.count {
-                    f[j] ^= u[j]
-                }
+        let status = passwordData.withUnsafeBytes { passwordPtr in
+            salt.withUnsafeBytes { saltPtr in
+                CCKeyDerivationPBKDF(
+                    CCPBKDFAlgorithm(kCCPBKDF2),
+                    passwordPtr.baseAddress?.assumingMemoryBound(to: Int8.self),
+                    passwordData.count,
+                    saltPtr.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                    salt.count,
+                    CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+                    100_000,
+                    &derivedBytes,
+                    32
+                )
             }
-
-            derived.append(f)
-            block += 1
         }
 
-        return derived.prefix(keyLength)
-    }
+        guard status == kCCSuccess else {
+            throw WalletError.encryptionFailed
+        }
 
-    private static func hmacSHA256(key: Data, data: Data) -> Data {
-        let hmac = HMAC<SHA256>.authenticationCode(for: data, using: SymmetricKey(data: key))
-        return Data(hmac)
+        return SymmetricKey(data: derivedBytes)
     }
 
     private static func generateRandomBytes(count: Int) -> Data {
         var bytes = [UInt8](repeating: 0, count: count)
-        let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
-        guard status == errSecSuccess else {
-            fatalError("Failed to generate random bytes")
-        }
+        _ = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
         return Data(bytes)
     }
 }

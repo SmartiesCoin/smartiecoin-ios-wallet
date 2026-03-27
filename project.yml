@@ -10,8 +10,8 @@ packages:
     url: https://github.com/GigaBitcoin/secp256k1.swift
     exactVersion: "0.10.0"
 
-targets:
-  SmartiecoinWallet:
+targetTemplates:
+  SmartiecoinBase:
     type: application
     platform: iOS
     sources:
@@ -22,7 +22,6 @@ targets:
       - path: SmartiecoinWallet/Resources/Assets.xcassets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.wallet
         MARKETING_VERSION: "2.0.0"
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -32,3 +31,22 @@ targets:
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: true
     dependencies:
       - package: secp256k1
+
+targets:
+  SmartiecoinNode:
+    templates:
+      - SmartiecoinBase
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.node
+        PRODUCT_NAME: "Smartiecoin Node"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_SPV"
+
+  SmartiecoinLite:
+    templates:
+      - SmartiecoinBase
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.lite
+        PRODUCT_NAME: "Smartiecoin Lite"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_API"
