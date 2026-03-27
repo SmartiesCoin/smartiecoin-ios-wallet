@@ -84,16 +84,15 @@ final class SPVClient: ObservableObject {
     }
 
     func stop() {
-        syncTimer?.invalidate()
-        syncTimer = nil
-        peerManager.stop()
-
-        Task { @MainActor in
-            syncState = .disconnected
-            peerCount = 0
-            connectedPeers = []
-            isSyncing = false
+        DispatchQueue.main.async { [weak self] in
+            self?.syncTimer?.invalidate()
+            self?.syncTimer = nil
+            self?.syncState = .disconnected
+            self?.peerCount = 0
+            self?.connectedPeers = []
+            self?.isSyncing = false
         }
+        peerManager.stop()
     }
 
     func addManualPeer(host: String, port: UInt16 = P2PConfig.port) {
@@ -138,7 +137,7 @@ final class SPVClient: ObservableObject {
         peerManager.onPeerConnected = { [weak self] peer in
             guard let self else { return }
 
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 self.peerCount = self.peerManager.peerCount
                 self.updatePeerList()
                 self.networkHeight = Int(self.peerManager.bestPeerHeight)
@@ -155,7 +154,7 @@ final class SPVClient: ObservableObject {
 
         peerManager.onPeerDisconnected = { [weak self] _ in
             guard let self else { return }
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 self.peerCount = self.peerManager.peerCount
                 self.updatePeerList()
             }

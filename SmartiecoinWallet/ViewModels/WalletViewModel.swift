@@ -146,17 +146,25 @@ final class WalletViewModel: ObservableObject {
     // MARK: - SPV
 
     func startSPV() {
-        #if WALLET_MODE_API
         startBalanceRefresh()
-        #else
-        guard let address = walletData?.address else {
-            startBalanceRefresh()
-            return
-        }
+    }
+
+    func stopSPV() {
+        spvClient.stop()
+        stopBalanceRefresh()
+    }
+
+    var spvStarted = false
+
+    func startSPVIfNeeded() {
+        guard !spvStarted else { return }
+        guard let address = walletData?.address else { return }
+        spvStarted = true
 
         let savedPeers = UserDefaults.standard.stringArray(forKey: "manual_peers") ?? []
         for peerStr in savedPeers {
             let parts = peerStr.split(separator: ":")
+            guard parts.count >= 1 else { continue }
             let host = String(parts[0])
             let port = parts.count > 1 ? UInt16(parts[1]) ?? P2PConfig.port : P2PConfig.port
             spvClient.addManualPeer(host: host, port: port)
@@ -165,14 +173,6 @@ final class WalletViewModel: ObservableObject {
         Task {
             await spvClient.start(watchAddresses: [address])
         }
-
-        startBalanceRefresh()
-        #endif
-    }
-
-    func stopSPV() {
-        spvClient.stop()
-        stopBalanceRefresh()
     }
 
     func addPeersFromText(_ text: String) {

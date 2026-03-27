@@ -106,6 +106,7 @@ struct ContentView: View {
                     onBack: { viewModel.navigate(to: .dashboard) },
                     onAddPeer: { viewModel.addPeersFromText($0) }
                 )
+                .onAppear { viewModel.startSPVIfNeeded() }
             }
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.screen)
