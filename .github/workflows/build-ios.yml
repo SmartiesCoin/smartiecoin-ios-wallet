@@ -39,7 +39,7 @@ jobs:
             -project SmartiecoinWallet.xcodeproj \
             -scheme SmartiecoinNode \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination 'generic/platform=iOS Simulator' \
             -configuration Release \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
@@ -50,18 +50,7 @@ jobs:
             -project SmartiecoinWallet.xcodeproj \
             -scheme SmartiecoinLite \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -configuration Release \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Build Smartiecoin Node - iPad
-        run: |
-          xcodebuild build \
-            -project SmartiecoinWallet.xcodeproj \
-            -scheme SmartiecoinNode \
-            -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4),OS=latest' \
+            -destination 'generic/platform=iOS Simulator' \
             -configuration Release \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
