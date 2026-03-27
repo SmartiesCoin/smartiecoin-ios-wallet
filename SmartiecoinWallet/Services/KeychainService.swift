@@ -51,7 +51,7 @@ enum KeychainService {
     }
 }
 
-struct WalletData: Codable {
+struct WalletData: Codable, Sendable {
     let address: String
     let encryptedMnemonic: String
     let encryptedPrivKey: String

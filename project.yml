@@ -10,18 +10,20 @@ packages:
     url: https://github.com/GigaBitcoin/secp256k1.swift
     exactVersion: "0.10.0"
 
-targetTemplates:
-  SmartiecoinBase:
+targets:
+  SmartiecoinNode:
     type: application
     platform: iOS
     sources:
       - path: SmartiecoinWallet
         excludes:
-          - Resources/Assets.xcassets
+          - Resources
     resources:
-      - path: SmartiecoinWallet/Resources/Assets.xcassets
+      - path: SmartiecoinWallet/Resources
     settings:
       base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.node
+        PRODUCT_NAME: "SMT Node"
         MARKETING_VERSION: "2.0.0"
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -29,26 +31,30 @@ targetTemplates:
         INFOPLIST_FILE: SmartiecoinWallet/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: true
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_SPV"
     dependencies:
       - package: secp256k1
 
-targets:
-  SmartiecoinNode:
-    templates:
-      - SmartiecoinBase
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.node
-        PRODUCT_NAME: "Smartiecoin Node"
-        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_SPV"
-        INFOPLIST_KEY_CFBundleDisplayName: "SMT Node"
-
   SmartiecoinLite:
-    templates:
-      - SmartiecoinBase
+    type: application
+    platform: iOS
+    sources:
+      - path: SmartiecoinWallet
+        excludes:
+          - Resources
+    resources:
+      - path: SmartiecoinWallet/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.lite
-        PRODUCT_NAME: "Smartiecoin Lite"
+        PRODUCT_NAME: "SMT Lite"
+        MARKETING_VERSION: "2.0.0"
+        CURRENT_PROJECT_VERSION: 1
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.9"
+        INFOPLIST_FILE: SmartiecoinWallet/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: true
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_API"
-        INFOPLIST_KEY_CFBundleDisplayName: "SMT Lite"
+    dependencies:
+      - package: secp256k1

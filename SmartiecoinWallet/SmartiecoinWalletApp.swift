@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct SmartiecoinWalletApp: App {
-    @State private var viewModel = WalletViewModel()
+    @StateObject private var viewModel = WalletViewModel()
 
     var body: some Scene {
         WindowGroup {
@@ -13,7 +13,7 @@ struct SmartiecoinWalletApp: App {
 }
 
 struct ContentView: View {
-    @Bindable var viewModel: WalletViewModel
+    @ObservedObject var viewModel: WalletViewModel
 
     var body: some View {
         Group {

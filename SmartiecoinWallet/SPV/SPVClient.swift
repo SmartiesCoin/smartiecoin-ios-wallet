@@ -3,18 +3,17 @@ import Combine
 
 /// Main SPV client coordinator - connects to the Smartiecoin P2P network,
 /// syncs block headers, manages bloom filters, and tracks transactions
-@Observable
-final class SPVClient {
+final class SPVClient: ObservableObject {
     // MARK: - Observable State
 
-    var syncProgress: Double = 0
-    var syncState: SyncState = .disconnected
-    var blockHeight: Int = 0
-    var networkHeight: Int = 0
-    var peerCount: Int = 0
-    var connectedPeers: [PeerInfo] = []
-    var isSyncing = false
-    var lastError: String?
+    @Published var syncProgress: Double = 0
+    @Published var syncState: SyncState = .disconnected
+    @Published var blockHeight: Int = 0
+    @Published var networkHeight: Int = 0
+    @Published var peerCount: Int = 0
+    @Published var connectedPeers: [PeerInfo] = []
+    @Published var isSyncing = false
+    @Published var lastError: String?
 
     // MARK: - Internal
 
