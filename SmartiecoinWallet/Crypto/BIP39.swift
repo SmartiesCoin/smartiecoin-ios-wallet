@@ -1,20 +1,49 @@
 import Foundation
 import CryptoKit
+import CommonCrypto
 
 enum BIP39 {
     static func generateMnemonic() -> String {
         var entropy = [UInt8](repeating: 0, count: 16)
         let status = SecRandomCopyBytes(kSecRandomDefault, 16, &entropy)
         guard status == errSecSuccess else {
-            fatalError("Failed to generate random entropy")
+            // Fallback to less secure random if SecRandom fails
+            entropy = (0..<16).map { _ in UInt8.random(in: 0...255) }
         }
         return entropyToMnemonic(Data(entropy))
     }
 
     static func mnemonicToSeed(mnemonic: String, passphrase: String = "") -> Data {
-        let password = Data(mnemonic.utf8)
-        let salt = Data("mnemonic\(passphrase)".utf8)
-        return pbkdf2SHA512(password: password, salt: salt, iterations: 2048, keyLength: 64)
+        let salt = "mnemonic\(passphrase)"
+        var derivedBytes = [UInt8](repeating: 0, count: 64)
+
+        let status = mnemonic.withCString { passwordPtr in
+            Array(salt.utf8).withUnsafeBufferPointer { saltPtr in
+                CCKeyDerivationPBKDF(
+                    CCPBKDFAlgorithm(kCCPBKDF2),
+                    passwordPtr,
+                    mnemonic.utf8.count,
+                    saltPtr.baseAddress,
+                    salt.utf8.count,
+                    CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA512),
+                    2048,
+                    &derivedBytes,
+                    64
+                )
+            }
+        }
+
+        if status == kCCSuccess {
+            return Data(derivedBytes)
+        }
+
+        // Fallback to pure Swift if CommonCrypto fails
+        return pbkdf2SHA512Fallback(
+            password: Data(mnemonic.utf8),
+            salt: Data(salt.utf8),
+            iterations: 2048,
+            keyLength: 64
+        )
     }
 
     static func validateMnemonic(_ mnemonic: String) -> Bool {
@@ -25,7 +54,6 @@ enum BIP39 {
 
         guard words.count == 12 else { return false }
 
-        // Check all words are in wordlist
         let wordlist = BIP39Wordlist.english
         var indices = [Int]()
         for word in words {
@@ -33,7 +61,6 @@ enum BIP39 {
             indices.append(index)
         }
 
-        // Verify checksum
         // 12 words = 132 bits = 128 bits entropy + 4 bits checksum
         var bits = [Bool]()
         for index in indices {
@@ -42,7 +69,6 @@ enum BIP39 {
             }
         }
 
-        // Extract entropy (first 128 bits) and checksum (last 4 bits)
         var entropyBytes = [UInt8]()
         for i in stride(from: 0, to: 128, by: 8) {
             var byte: UInt8 = 0
@@ -61,7 +87,7 @@ enum BIP39 {
 
     private static func entropyToMnemonic(_ entropy: Data) -> String {
         let hash = Data(SHA256.hash(data: entropy))
-        let checksumBits = 4 // 128 bits entropy -> 4 bits checksum
+        let checksumBits = 4
 
         var bits = [Bool]()
         for byte in entropy {
@@ -86,7 +112,8 @@ enum BIP39 {
         return words.joined(separator: " ")
     }
 
-    private static func pbkdf2SHA512(password: Data, salt: Data, iterations: Int, keyLength: Int) -> Data {
+    // Fallback only - CommonCrypto is preferred
+    private static func pbkdf2SHA512Fallback(password: Data, salt: Data, iterations: Int, keyLength: Int) -> Data {
         var derived = Data()
         var block = 1
 

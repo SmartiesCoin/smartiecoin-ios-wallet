@@ -41,6 +41,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.node
         PRODUCT_NAME: "Smartiecoin Node"
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_SPV"
+        INFOPLIST_KEY_CFBundleDisplayName: "SMT Node"
 
   SmartiecoinLite:
     templates:
@@ -50,3 +51,4 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.lite
         PRODUCT_NAME: "Smartiecoin Lite"
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_API"
+        INFOPLIST_KEY_CFBundleDisplayName: "SMT Lite"

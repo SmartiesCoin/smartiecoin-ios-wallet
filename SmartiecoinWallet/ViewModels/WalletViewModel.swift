@@ -56,8 +56,11 @@ final class WalletViewModel {
         #if WALLET_MODE_API
         startBalanceRefresh()
         return
-        #endif
-        guard let address = walletData?.address else { return }
+        #else
+        guard let address = walletData?.address else {
+            startBalanceRefresh()
+            return
+        }
 
         // Load saved manual peers
         let savedPeers = UserDefaults.standard.stringArray(forKey: "manual_peers") ?? []
@@ -73,6 +76,7 @@ final class WalletViewModel {
         }
 
         startBalanceRefresh()
+        #endif
     }
 
     func stopSPV() {
@@ -80,14 +84,7 @@ final class WalletViewModel {
         stopBalanceRefresh()
     }
 
-    /// Add peers from addnode format (supports pasting multiple lines)
-    /// Formats supported:
-    /// - addnode=103.13.114.93
-    /// - addnode=103.13.114.93:9999
-    /// - 103.13.114.93
-    /// - 103.13.114.93:9999
     func addPeersFromText(_ text: String) {
-        // Also support single peer from the alert dialog
         let lines = text.components(separatedBy: CharacterSet.newlines.union(.init(charactersIn: ";")))
         var savedPeers = UserDefaults.standard.stringArray(forKey: "manual_peers") ?? []
 
@@ -95,7 +92,6 @@ final class WalletViewModel {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
 
-            // Strip "addnode=" prefix if present
             var peerStr = trimmed
             if let range = peerStr.range(of: "addnode=", options: .caseInsensitive) {
                 peerStr = String(peerStr[range.upperBound...])
@@ -104,18 +100,15 @@ final class WalletViewModel {
             peerStr = peerStr.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !peerStr.isEmpty else { continue }
 
-            // Parse host:port
             let parts = peerStr.split(separator: ":")
             let host = String(parts[0])
             let port = parts.count > 1 ? UInt16(parts[1]) ?? P2PConfig.port : P2PConfig.port
 
-            // Validate IP format (basic check)
-            let ipParts = host.split(separator: ".")
-            guard ipParts.count == 4, ipParts.allSatisfy({ UInt8($0) != nil }) else { continue }
+            // Validate - allow IPs and hostnames
+            guard host.count >= 4 else { continue }
 
             spvClient.addManualPeer(host: host, port: port)
 
-            // Save for persistence
             let peerKey = "\(host):\(port)"
             if !savedPeers.contains(peerKey) {
                 savedPeers.append(peerKey)
@@ -131,21 +124,24 @@ final class WalletViewModel {
         loading = true
         error = nil
 
-        Task.detached(priority: .userInitiated) { [self] in
+        let pw = password
+        Task {
             do {
-                let result = try WalletService.createWallet(password: password)
+                let result = try await runInBackground {
+                    try WalletService.createWallet(password: pw)
+                }
                 try WalletService.saveWallet(result.walletData)
                 await MainActor.run {
-                    walletData = result.walletData
-                    mnemonic = result.mnemonic
-                    privateKey = result.privateKey
-                    loading = false
-                    navigate(to: .backup)
+                    self.walletData = result.walletData
+                    self.mnemonic = result.mnemonic
+                    self.privateKey = result.privateKey
+                    self.loading = false
+                    self.navigate(to: .backup)
                 }
             } catch {
                 await MainActor.run {
                     self.error = error.localizedDescription
-                    loading = false
+                    self.loading = false
                 }
             }
         }
@@ -157,22 +153,26 @@ final class WalletViewModel {
         loading = true
         error = nil
 
-        Task.detached(priority: .userInitiated) { [self] in
+        let mn = mnemonic
+        let pw = password
+        Task {
             do {
-                let result = try WalletService.importWallet(mnemonic: mnemonic, password: password)
+                let result = try await runInBackground {
+                    try WalletService.importWallet(mnemonic: mn, password: pw)
+                }
                 try WalletService.saveWallet(result.walletData)
                 await MainActor.run {
-                    walletData = result.walletData
-                    privateKey = result.privateKey
+                    self.walletData = result.walletData
+                    self.privateKey = result.privateKey
                     self.mnemonic = nil
-                    loading = false
-                    navigate(to: .dashboard)
-                    startSPV()
+                    self.loading = false
+                    self.navigate(to: .dashboard)
+                    self.startSPV()
                 }
             } catch {
                 await MainActor.run {
                     self.error = error.localizedDescription
-                    loading = false
+                    self.loading = false
                 }
             }
         }
@@ -181,24 +181,26 @@ final class WalletViewModel {
     // MARK: - Unlock
 
     func unlock(password: String) {
-        guard let walletData else { return }
+        guard let wd = walletData else { return }
         loading = true
         error = nil
 
-        let wd = walletData
-        Task.detached(priority: .userInitiated) { [self] in
+        let pw = password
+        Task {
             do {
-                let result = try WalletService.unlockWallet(walletData: wd, password: password)
+                let result = try await runInBackground {
+                    try WalletService.unlockWallet(walletData: wd, password: pw)
+                }
                 await MainActor.run {
-                    privateKey = result.privateKey
-                    loading = false
-                    navigate(to: .dashboard)
-                    startSPV()
+                    self.privateKey = result.privateKey
+                    self.loading = false
+                    self.navigate(to: .dashboard)
+                    self.startSPV()
                 }
             } catch {
                 await MainActor.run {
                     self.error = error.localizedDescription
-                    loading = false
+                    self.loading = false
                 }
             }
         }
@@ -278,5 +280,20 @@ final class WalletViewModel {
 
         refreshBalance()
         return result
+    }
+
+    // MARK: - Background Work Helper
+
+    private func runInBackground<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let result = try work()
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 }
