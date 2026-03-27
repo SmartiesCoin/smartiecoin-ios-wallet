@@ -30,6 +30,10 @@ targets:
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_SPV"
     dependencies:
       - package: secp256k1
+      - framework: Network.framework
+        embed: false
+      - framework: Security.framework
+        embed: false
 
   SmartiecoinLite:
     type: application

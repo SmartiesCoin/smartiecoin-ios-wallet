@@ -86,7 +86,7 @@ struct HistoryView: View {
             #if WALLET_MODE_API
             transactions = try await APIService.fetchHistory(address: address)
             #else
-            transactions = await SPVWalletService.fetchHistory(address: address)
+            transactions = SPVWalletService.fetchHistory(address: address)
             #endif
             loading = false
         } catch {
