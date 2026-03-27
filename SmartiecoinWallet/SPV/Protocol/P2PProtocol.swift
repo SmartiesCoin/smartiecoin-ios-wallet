@@ -29,9 +29,9 @@ enum P2PConfig {
         "smartiescoin.com"
     ]
 
-    // Hardcoded seed nodes as fallback
+    // Hardcoded seed nodes (always connected)
     static let seedNodes: [(String, UInt16)] = [
-        ("207.180.230.125", 8383),
+        ("207.180.230.125", 8383),  // Main VPS node
     ]
 
     // Maximum headers per getheaders response

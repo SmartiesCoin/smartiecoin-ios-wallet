@@ -170,9 +170,8 @@ final class WalletViewModel: ObservableObject {
             spvClient.addManualPeer(host: host, port: port)
         }
 
-        Task {
-            await spvClient.start(watchAddresses: [address])
-        }
+        SPVWalletService.client = spvClient
+        spvClient.start(watchAddresses: [address])
     }
 
     func addPeersFromText(_ text: String) {
@@ -218,10 +217,8 @@ final class WalletViewModel: ObservableObject {
             } catch {}
         }
         #else
-        Task {
-            let bal = await SPVWalletService.fetchBalance(address: address)
-            self.balance = bal
-        }
+        let bal = SPVWalletService.fetchBalance(address: address)
+        self.balance = bal
         #endif
     }
 

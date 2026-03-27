@@ -16,10 +16,6 @@ targets:
     platform: iOS
     sources:
       - path: SmartiecoinWallet
-        excludes:
-          - Resources
-    resources:
-      - path: SmartiecoinWallet/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.node
@@ -40,10 +36,6 @@ targets:
     platform: iOS
     sources:
       - path: SmartiecoinWallet
-        excludes:
-          - Resources
-    resources:
-      - path: SmartiecoinWallet/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.lite

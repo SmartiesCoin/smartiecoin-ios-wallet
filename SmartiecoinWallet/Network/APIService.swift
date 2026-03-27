@@ -4,9 +4,29 @@ struct BalanceResponse: Codable {
     let balance: Int
     let received: Int
     let sent: Int
+
+    enum CodingKeys: String, CodingKey {
+        case balance, received, sent
+    }
+
+    init(balance: Int, received: Int, sent: Int) {
+        self.balance = balance
+        self.received = received
+        self.sent = sent
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let v = try? c.decode(Int.self, forKey: .balance) { balance = v }
+        else { balance = Int(try c.decode(Double.self, forKey: .balance)) }
+        if let v = try? c.decode(Int.self, forKey: .received) { received = v }
+        else { received = Int(try c.decode(Double.self, forKey: .received)) }
+        if let v = try? c.decode(Int.self, forKey: .sent) { sent = v }
+        else { sent = Int(try c.decode(Double.self, forKey: .sent)) }
+    }
 }
 
-struct HistoryTx: Codable, Identifiable {
+struct HistoryTx: Identifiable {
     let txid: String
     let sent: Int
     let received: Int
@@ -14,15 +34,32 @@ struct HistoryTx: Codable, Identifiable {
     let timestamp: Int
 
     var id: String { txid }
-
     var isReceive: Bool { received > sent }
+    var netAmount: Int { isReceive ? (received - sent) : (sent - received) }
+    var date: Date { Date(timeIntervalSince1970: TimeInterval(timestamp)) }
+}
 
-    var netAmount: Int {
-        isReceive ? (received - sent) : (sent - received)
+extension HistoryTx: Codable {
+    enum CodingKeys: String, CodingKey {
+        case txid, sent, received, balance, timestamp
     }
 
-    var date: Date {
-        Date(timeIntervalSince1970: TimeInterval(timestamp))
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        txid = try c.decode(String.self, forKey: .txid)
+
+        // Handle Int or Double for numeric fields
+        if let v = try? c.decode(Int.self, forKey: .sent) { sent = v }
+        else { sent = Int(try c.decode(Double.self, forKey: .sent)) }
+
+        if let v = try? c.decode(Int.self, forKey: .received) { received = v }
+        else { received = Int(try c.decode(Double.self, forKey: .received)) }
+
+        if let v = try? c.decode(Int.self, forKey: .balance) { balance = v }
+        else { balance = Int(try c.decode(Double.self, forKey: .balance)) }
+
+        if let v = try? c.decode(Int.self, forKey: .timestamp) { timestamp = v }
+        else { timestamp = Int(try c.decode(Double.self, forKey: .timestamp)) }
     }
 }
 
