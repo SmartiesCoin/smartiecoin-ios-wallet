@@ -33,8 +33,14 @@ final class PeerConnection: @unchecked Sendable {
 
     // MARK: - Connection Lifecycle
 
+    // Status for debugging
+    private(set) var statusMessage: String = "init"
+
     func connect() {
-        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+            statusMessage = "invalid port"
+            return
+        }
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),
             port: nwPort
@@ -44,22 +50,32 @@ final class PeerConnection: @unchecked Sendable {
         params.allowLocalEndpointReuse = true
 
         connection = NWConnection(to: endpoint, using: params)
+        statusMessage = "connecting..."
 
         connection?.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
+            case .setup:
+                self.statusMessage = "setup"
+            case .preparing:
+                self.statusMessage = "preparing"
             case .ready:
                 self.isConnected = true
+                self.statusMessage = "TCP connected, sending version..."
                 self.onConnected?()
                 self.startReceiving()
                 self.sendVersion()
+            case .waiting(let error):
+                self.statusMessage = "waiting: \(error)"
             case .failed(let error):
                 self.isConnected = false
+                self.statusMessage = "failed: \(error)"
                 self.onDisconnected?(error)
             case .cancelled:
                 self.isConnected = false
+                self.statusMessage = "cancelled"
                 self.onDisconnected?(nil)
-            default:
+            @unknown default:
                 break
             }
         }
@@ -170,15 +186,19 @@ final class PeerConnection: @unchecked Sendable {
     }
 
     private func handleVersion(_ payload: Data) {
-        guard let version = VersionMessage(from: payload) else { return }
+        guard let version = VersionMessage(from: payload) else {
+            statusMessage = "bad version msg (\(payload.count) bytes)"
+            return
+        }
         peerVersion = version
         peerHeight = version.startHeight
+        statusMessage = "got version v\(version.protocolVersion) h\(version.startHeight), sending verack"
         send(command: .verack)
     }
 
     private func handleVerack() {
         isHandshakeComplete = true
-        // Request peer to send headers directly (sendheaders BIP130)
+        statusMessage = "handshake complete"
         send(command: .sendheaders)
         onHandshakeComplete?()
     }

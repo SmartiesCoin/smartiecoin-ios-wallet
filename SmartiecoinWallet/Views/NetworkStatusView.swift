@@ -307,11 +307,18 @@ struct PeerRow: View {
                     .foregroundColor(AppColors.textMuted)
             }
 
+            Text(peer.status)
+                .font(.caption2.monospaced())
+                .foregroundColor(AppColors.textMuted)
+                .lineLimit(1)
+
             HStack(spacing: 12) {
-                Text(peer.userAgent)
-                    .font(.caption)
-                    .foregroundColor(AppColors.textMuted)
-                    .lineLimit(1)
+                if !peer.userAgent.isEmpty {
+                    Text(peer.userAgent)
+                        .font(.caption)
+                        .foregroundColor(AppColors.textMuted)
+                        .lineLimit(1)
+                }
 
                 Spacer()
 

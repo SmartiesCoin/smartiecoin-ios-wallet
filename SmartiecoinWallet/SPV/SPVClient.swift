@@ -37,6 +37,7 @@ final class SPVClient: ObservableObject {
         let isConnected: Bool
         let bytesSent: Int
         let bytesReceived: Int
+        let status: String
     }
 
     // MARK: - Lifecycle (call from main thread)
@@ -310,17 +311,25 @@ final class SPVClient: ObservableObject {
     // MARK: - Timer
 
     private func startSyncTimer() {
-        syncTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        // Update peer list frequently for live status
+        syncTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            DispatchQueue.main.async { self.updatePeerList() }
+        }
+
+        // Sync headers less frequently
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.requestHeaderSync()
-            DispatchQueue.main.async { self?.updatePeerList() }
         }
     }
 
     private func updatePeerList() {
-        connectedPeers = peerManager.connectedPeers.map {
+        // Show ALL peers including those still connecting
+        connectedPeers = peerManager.allPeers.map {
             PeerInfo(id: $0.id, host: $0.host, port: $0.port, height: $0.peerHeight,
-                     userAgent: $0.peerVersion?.userAgent ?? "unknown",
-                     isConnected: $0.isConnected, bytesSent: $0.bytesSent, bytesReceived: $0.bytesReceived)
+                     userAgent: $0.peerVersion?.userAgent ?? "",
+                     isConnected: $0.isHandshakeComplete, bytesSent: $0.bytesSent,
+                     bytesReceived: $0.bytesReceived, status: $0.statusMessage)
         }
     }
 
