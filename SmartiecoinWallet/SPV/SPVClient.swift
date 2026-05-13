@@ -11,6 +11,11 @@ final class SPVClient: ObservableObject {
     @Published var connectedPeers: [PeerInfo] = []
     @Published var isSyncing = false
     @Published var lastError: String?
+    @Published var lastSyncLog: String = ""
+
+    /// Fires on main thread whenever UTXOs/transactions change so the UI can
+    /// refresh balance immediately instead of waiting for the poll timer.
+    var onBalanceChanged: (() -> Void)?
 
     private let peerManager = PeerManager()
     private let headerStore = HeaderStore()
@@ -19,6 +24,7 @@ final class SPVClient: ObservableObject {
     private var watchedPubKeyHashes: [Data] = []
     private var manualPeers: [(String, UInt16)] = []
     private var syncTimer: Timer?
+    private var headerSyncTimer: Timer?
 
     enum SyncState: String {
         case disconnected = "Disconnected"
@@ -63,6 +69,8 @@ final class SPVClient: ObservableObject {
     func stop() {
         syncTimer?.invalidate()
         syncTimer = nil
+        headerSyncTimer?.invalidate()
+        headerSyncTimer = nil
         peerManager.stop()
         syncState = .disconnected
         peerCount = 0
@@ -130,10 +138,14 @@ final class SPVClient: ObservableObject {
 
     private func requestHeaderSync() {
         let locator = headerStore.getBlockLocator()
-        if locator.isEmpty {
-            peerManager.requestHeaders(locatorHashes: [Data(repeating: 0, count: 32)])
+        let locators = locator.isEmpty ? [Data(repeating: 0, count: 32)] : locator
+
+        // While still catching up, a single peer is enough (bulk batches).
+        // Once synchronized, poll every peer so whichever has the newest tip responds.
+        if syncState == .synchronized {
+            peerManager.requestHeadersFromAll(locatorHashes: locators)
         } else {
-            peerManager.requestHeaders(locatorHashes: locator)
+            peerManager.requestHeaders(locatorHashes: locators)
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -143,12 +155,25 @@ final class SPVClient: ObservableObject {
         }
     }
 
-    private func handleHeaders(_ payload: Data) {
-        guard let msg = HeadersMessage(from: payload) else { return }
+    /// Public trigger so views (e.g. NetworkStatusView) can force a refresh on appear.
+    func requestTipRefresh() {
+        requestHeaderSync()
+    }
 
+    private func handleHeaders(_ payload: Data) {
+        guard let msg = HeadersMessage(from: payload) else {
+            DispatchQueue.main.async { [weak self] in
+                self?.lastSyncLog = "bad headers msg (\(payload.count)B)"
+            }
+            return
+        }
+
+        let receivedCount = msg.headers.count
+        let firstPrev = msg.headers.first?.prevHash.hexString.suffix(8) ?? "-"
         let added = headerStore.addHeaders(msg.headers)
         let currentHeight = headerStore.chainTipHeight
         let netHeight = Int(peerManager.bestPeerHeight)
+        let logMsg = "rx:\(receivedCount) add:\(added) tip:\(currentHeight) prev:\(firstPrev)"
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -161,6 +186,7 @@ final class SPVClient: ObservableObject {
                 self.syncState = .synchronized
                 self.isSyncing = false
             }
+            self.lastSyncLog = logMsg
         }
 
         if added >= P2PConfig.maxHeaders - 10 {
@@ -185,6 +211,9 @@ final class SPVClient: ObservableObject {
         for utxo in txInfo.newUTXOs { headerStore.addUTXO(utxo) }
         for spent in txInfo.spentOutputs {
             headerStore.removeUTXO(txid: spent.txid, outputIndex: spent.outputIndex)
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.onBalanceChanged?()
         }
     }
 
@@ -211,10 +240,11 @@ final class SPVClient: ObservableObject {
     }
 
     private func handleReject(_ payload: Data) {
+        let s = payload.startIndex
         var offset = 0
         guard let msgLen = payload.readVarInt(at: &offset) else { return }
         let msgEnd = min(offset + msgLen, payload.count)
-        let message = String(data: payload.subdata(in: offset..<msgEnd), encoding: .utf8) ?? "unknown"
+        let message = String(data: payload.subdata(in: (s + offset)..<(s + msgEnd)), encoding: .utf8) ?? "unknown"
         DispatchQueue.main.async { [weak self] in
             self?.lastError = "Rejected: \(message)"
         }
@@ -230,6 +260,7 @@ final class SPVClient: ObservableObject {
 
     private func parseTransaction(_ data: Data) -> ParsedTx? {
         guard data.count > 10 else { return nil }
+        let s = data.startIndex
         let txid = Data(Base58.doubleSHA256(data).reversed()).hexString
 
         var offset = 4
@@ -238,7 +269,7 @@ final class SPVClient: ObservableObject {
         var spentOutputs: [(txid: String, outputIndex: Int)] = []
         for _ in 0..<inputCount {
             guard offset + 36 <= data.count else { return nil }
-            let prevTxid = Data(data.subdata(in: offset..<(offset + 32)).reversed()).hexString
+            let prevTxid = Data(data.subdata(in: (s + offset)..<(s + offset + 32)).reversed()).hexString
             let prevIndex = Int(data.readUInt32LE(at: offset + 32))
             offset += 36
             guard let scriptLen = data.readVarInt(at: &offset) else { return nil }
@@ -257,11 +288,12 @@ final class SPVClient: ObservableObject {
             offset += 8
             guard let scriptLen = data.readVarInt(at: &offset) else { return nil }
             guard offset + scriptLen <= data.count else { return nil }
-            let scriptPubKey = data.subdata(in: offset..<(offset + scriptLen))
+            let scriptPubKey = data.subdata(in: (s + offset)..<(s + offset + scriptLen))
             offset += scriptLen
 
-            if scriptPubKey.count == 25 && scriptPubKey[0] == 0x76 && scriptPubKey[1] == 0xA9 {
-                let pubKeyHash = scriptPubKey.subdata(in: 3..<23)
+            let sp = scriptPubKey.startIndex
+            if scriptPubKey.count == 25 && scriptPubKey[sp] == 0x76 && scriptPubKey[sp + 1] == 0xA9 {
+                let pubKeyHash = scriptPubKey.subdata(in: (sp + 3)..<(sp + 23))
                 if watchedPubKeyHashes.contains(pubKeyHash) {
                     var addressData = Data([SmartiecoinNetwork.pubKeyHash])
                     addressData.append(pubKeyHash)
@@ -308,6 +340,38 @@ final class SPVClient: ObservableObject {
         peerManager.broadcastTransaction(data: data)
     }
 
+    /// Optimistically records an outgoing transaction in the local store so the user
+    /// sees it in History and the balance drops immediately, before the tx confirms.
+    func recordOutgoingTransaction(
+        txid: String,
+        fromAddress: String,
+        spentUTXOs: [UTXO],
+        sentAmount: Int,
+        changeAmount: Int
+    ) {
+        for utxo in spentUTXOs {
+            headerStore.removeUTXO(txid: utxo.txid, outputIndex: utxo.outputIndex)
+        }
+        if changeAmount > 0,
+           let pubKeyHash = AddressGenerator.pubKeyHashFromAddress(fromAddress) {
+            let script = AddressGenerator.scriptPubKeyForP2PKH(pubKeyHash: pubKeyHash)
+            headerStore.addUTXO(SPVUtxo(
+                txid: txid, outputIndex: 1, satoshis: changeAmount,
+                address: fromAddress, scriptPubKey: script.hexString, blockHeight: nil
+            ))
+        }
+        let tx = SPVTransaction(
+            txid: txid, blockHash: nil, blockHeight: nil,
+            timestamp: Int(Date().timeIntervalSince1970),
+            involvedAddresses: [fromAddress],
+            sent: sentAmount, received: 0, rawHex: nil
+        )
+        headerStore.addTransaction(tx)
+        DispatchQueue.main.async { [weak self] in
+            self?.onBalanceChanged?()
+        }
+    }
+
     // MARK: - Timer
 
     private func startSyncTimer() {
@@ -317,8 +381,9 @@ final class SPVClient: ObservableObject {
             DispatchQueue.main.async { self.updatePeerList() }
         }
 
-        // Sync headers less frequently
-        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        // Poll for new headers every 10s. Smartiecoin produces blocks every ~60s,
+        // so 10s keeps the tip roughly 1 block behind worst case.
+        headerSyncTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             self?.requestHeaderSync()
         }
     }

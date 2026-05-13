@@ -4,7 +4,11 @@ struct UnlockWalletView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     let address: String
     let onSubmit: (String) -> Void
+    let onBiometricUnlock: () -> Void
     let onDelete: () -> Void
+    let biometricSupported: Bool
+    let biometricAvailable: Bool
+    let biometryName: String
     let loading: Bool
     let error: String?
 
@@ -63,6 +67,44 @@ struct UnlockWalletView: View {
                         }
                         .buttonStyle(PrimaryButtonStyle(disabled: password.isEmpty || loading))
                         .disabled(password.isEmpty || loading)
+
+                        if biometricAvailable {
+                            Button(action: onBiometricUnlock) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: biometryName == "Touch ID" ? "touchid" : "faceid")
+                                        .font(.headline)
+                                    Text("Unlock with \(biometryName)")
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(SecondaryButtonStyle())
+                            .disabled(loading)
+                        } else {
+                            HStack(spacing: 10) {
+                                Image(systemName: biometricSupported ? (biometryName == "Touch ID" ? "touchid" : "faceid") : "faceid")
+                                    .font(.title3)
+                                    .foregroundColor(biometricSupported ? AppColors.primary : AppColors.textMuted)
+                                    .frame(width: 28)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(biometricSupported ? "\(biometryName) setup pending" : "Face ID unavailable")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(AppColors.text)
+                                    Text(biometricSupported ? "Unlock once with your password to activate \(biometryName)." : "Enable Face ID and a device passcode in iOS Settings.")
+                                        .font(.caption)
+                                        .foregroundColor(AppColors.textMuted)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(12)
+                            .background(AppColors.bgCard)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(AppColors.border, lineWidth: 1)
+                            )
+                        }
 
                         Button(action: { showDeleteAlert = true }) {
                             Text("Delete Wallet")

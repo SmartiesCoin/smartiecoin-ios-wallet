@@ -78,17 +78,18 @@ struct BloomFilter {
     private func murmurHash3(data: Data, seed: UInt32) -> UInt32 {
         let c1: UInt32 = 0xCC9E2D51
         let c2: UInt32 = 0x1B873593
-        let length = data.count
+        let bytes = [UInt8](data)
+        let length = bytes.count
         var h1 = seed
 
         // Body - process 4-byte chunks
         let nblocks = length / 4
         for i in 0..<nblocks {
             let offset = i * 4
-            var k1 = UInt32(data[offset])
-                | (UInt32(data[offset + 1]) << 8)
-                | (UInt32(data[offset + 2]) << 16)
-                | (UInt32(data[offset + 3]) << 24)
+            var k1 = UInt32(bytes[offset])
+                | (UInt32(bytes[offset + 1]) << 8)
+                | (UInt32(bytes[offset + 2]) << 16)
+                | (UInt32(bytes[offset + 3]) << 24)
 
             k1 &*= c1
             k1 = (k1 << 15) | (k1 >> 17)
@@ -105,13 +106,13 @@ struct BloomFilter {
 
         switch length & 3 {
         case 3:
-            k1 ^= UInt32(data[tail + 2]) << 16
+            k1 ^= UInt32(bytes[tail + 2]) << 16
             fallthrough
         case 2:
-            k1 ^= UInt32(data[tail + 1]) << 8
+            k1 ^= UInt32(bytes[tail + 1]) << 8
             fallthrough
         case 1:
-            k1 ^= UInt32(data[tail])
+            k1 ^= UInt32(bytes[tail])
             k1 &*= c1
             k1 = (k1 << 15) | (k1 >> 17)
             k1 &*= c2

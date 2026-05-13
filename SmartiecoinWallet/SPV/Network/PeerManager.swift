@@ -74,7 +74,6 @@ final class PeerManager: @unchecked Sendable {
         let needed = P2PConfig.targetPeers - activeCount
         guard needed > 0 else { lock.unlock(); return }
 
-        let connectedKeys = Set(peers.filter { $0.isConnected }.map { "\($0.host):\($0.port)" })
         let allKeys = Set(peers.map { "\($0.host):\($0.port)" })
         let unconnected = knownAddresses.subtracting(allKeys)
         lock.unlock()
@@ -140,6 +139,14 @@ final class PeerManager: @unchecked Sendable {
     func requestHeaders(locatorHashes: [Data]) {
         guard let peer = connectedPeers.randomElement() else { return }
         peer.requestHeaders(locatorHashes: locatorHashes)
+    }
+
+    /// Ask every connected peer for headers after the given locator. Used for keep-alive
+    /// polling so that at least one peer with the latest chain tip responds.
+    func requestHeadersFromAll(locatorHashes: [Data]) {
+        for peer in connectedPeers {
+            peer.requestHeaders(locatorHashes: locatorHashes)
+        }
     }
 
     func sendBloomFilter(_ filter: BloomFilter) {

@@ -13,6 +13,8 @@ enum AppScreen: Equatable {
     case receive
     case history
     case networkStatus
+    case revealMnemonic
+    case changePassword
 }
 
 @MainActor
@@ -25,8 +27,14 @@ final class WalletViewModel: ObservableObject {
     @Published var error: String?
     @Published var loading = false
     @Published var spvClient = SPVClient()
+    @Published var revealedMnemonic: String?
+    @Published var passwordChanged = false
+    @Published var biometricSupported = false
+    @Published var biometricUnlockAvailable = false
+    @Published var biometryName = BiometricAuthService.biometryName
 
     private var balanceTimer: Timer?
+    private var hasLoadedInitialBalance = false
 
     init() {
         loadWallet()
@@ -35,6 +43,7 @@ final class WalletViewModel: ObservableObject {
     func loadWallet() {
         if let data = WalletService.loadWallet() {
             walletData = data
+            refreshBiometricState()
             screen = .unlock
         } else {
             screen = .landing
@@ -63,6 +72,7 @@ final class WalletViewModel: ObservableObject {
                     self.walletData = result.walletData
                     self.mnemonic = result.mnemonic
                     self.privateKey = result.privateKey
+                    self.saveBiometricCredential(password: password)
                     self.loading = false
                     self.navigate(to: .backup)
                 }
@@ -90,6 +100,7 @@ final class WalletViewModel: ObservableObject {
                     self.walletData = result.walletData
                     self.privateKey = result.privateKey
                     self.mnemonic = nil
+                    self.saveBiometricCredential(password: password)
                     self.loading = false
                     self.navigate(to: .dashboard)
                     self.startSPV()
@@ -116,6 +127,7 @@ final class WalletViewModel: ObservableObject {
 
                 DispatchQueue.main.async {
                     self.privateKey = result.privateKey
+                    self.saveBiometricCredential(password: password)
                     self.loading = false
                     self.navigate(to: .dashboard)
                     self.startSPV()
@@ -129,17 +141,146 @@ final class WalletViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Logout / Delete
+    func unlockWithBiometrics() {
+        guard let wd = walletData else { return }
+        loading = true
+        error = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let password = try BiometricAuthService.loadUnlockPassword()
+                let result = try WalletService.unlockWallet(walletData: wd, password: password)
+
+                DispatchQueue.main.async {
+                    self.privateKey = result.privateKey
+                    self.loading = false
+                    self.refreshBiometricState()
+                    self.navigate(to: .dashboard)
+                    self.startSPV()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.error = error.localizedDescription
+                    self.loading = false
+                    self.refreshBiometricState()
+                }
+            }
+        }
+    }
+
+    func refreshBiometricState() {
+        biometryName = BiometricAuthService.biometryName
+        biometricSupported = BiometricAuthService.isBiometrySupported
+        biometricUnlockAvailable = BiometricAuthService.canUnlock
+    }
+
+    private func saveBiometricCredential(password: String) {
+        do {
+            try BiometricAuthService.saveUnlockPassword(password)
+            refreshBiometricState()
+        } catch {
+            refreshBiometricState()
+        }
+    }
+
+    // MARK: - Reveal Recovery Phrase
+
+    func revealMnemonic(password: String) {
+        guard let wd = walletData else { return }
+        loading = true
+        error = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let result = try WalletService.unlockWallet(walletData: wd, password: password)
+                DispatchQueue.main.async {
+                    self.revealedMnemonic = result.mnemonic
+                    self.loading = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.error = "Incorrect password"
+                    self.loading = false
+                }
+            }
+        }
+    }
+
+    func clearRevealedMnemonic() {
+        revealedMnemonic = nil
+        error = nil
+    }
+
+    // MARK: - Change Password
+
+    func changePassword(currentPassword: String, newPassword: String) {
+        guard let wd = walletData else { return }
+        loading = true
+        error = nil
+        passwordChanged = false
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let updated = try WalletService.changePassword(
+                    walletData: wd,
+                    currentPassword: currentPassword,
+                    newPassword: newPassword
+                )
+                try WalletService.saveWallet(updated)
+
+                DispatchQueue.main.async {
+                    self.walletData = updated
+                    self.saveBiometricCredential(password: newPassword)
+                    self.passwordChanged = true
+                    self.loading = false
+                }
+            } catch WalletError.wrongPassword {
+                DispatchQueue.main.async {
+                    self.error = "Current password is incorrect"
+                    self.loading = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.error = "Failed to change password"
+                    self.loading = false
+                }
+            }
+        }
+    }
+
+    func clearPasswordChangeState() {
+        passwordChanged = false
+        error = nil
+    }
+
+    // MARK: - Lock / Delete
+
+    func lock() {
+        stopSPV()
+        privateKey = nil
+        mnemonic = nil
+        revealedMnemonic = nil
+        balance = nil
+        error = nil
+        loading = false
+        hasLoadedInitialBalance = false
+        refreshBiometricState()
+        navigate(to: .unlock)
+    }
 
     func logout() {
         stopSPV()
         WalletService.deleteWallet()
+        BiometricAuthService.deleteCredential()
         walletData = nil
         privateKey = nil
         mnemonic = nil
+        revealedMnemonic = nil
         balance = nil
         error = nil
         loading = false
+        biometricUnlockAvailable = false
+        hasLoadedInitialBalance = false
         navigate(to: .landing)
     }
 
@@ -176,6 +317,9 @@ final class WalletViewModel: ObservableObject {
             }
 
             SPVWalletService.client = self.spvClient
+            self.spvClient.onBalanceChanged = { [weak self] in
+                self?.refreshBalance()
+            }
             self.spvClient.start(watchAddresses: [address])
         }
     }
@@ -214,25 +358,28 @@ final class WalletViewModel: ObservableObject {
 
     func refreshBalance() {
         guard let address = walletData?.address else { return }
-
-        #if WALLET_MODE_API
         Task {
             do {
                 let bal = try await APIService.fetchBalance(address: address)
+                if hasLoadedInitialBalance,
+                   let previous = self.balance,
+                   bal.received > previous.received {
+                    let amount = SmartiecoinNetwork.smtToDisplay(bal.received - previous.received)
+                    NotificationService.shared.notifyIncomingSmartiecoin(amount: amount)
+                }
                 self.balance = bal
+                self.hasLoadedInitialBalance = true
             } catch {}
         }
-        #else
-        let bal = SPVWalletService.fetchBalance(address: address)
-        self.balance = bal
-        #endif
     }
 
     func startBalanceRefresh() {
         refreshBalance()
         stopBalanceRefresh()
-        balanceTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            self?.refreshBalance()
+        balanceTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshBalance()
+            }
         }
     }
 

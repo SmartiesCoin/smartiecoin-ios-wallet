@@ -2,7 +2,13 @@ import Foundation
 import Security
 
 enum KeychainService {
-    private static let service = "com.smartiecoin.wallet"
+    // Namespaced per build target so Node and Lite have separate wallets
+    // (needed on the iOS simulator where keychain is shared across apps).
+    #if WALLET_MODE_SPV
+    private static let service = "com.smartiecoin.wallet.node"
+    #else
+    private static let service = "com.smartiecoin.wallet.lite"
+    #endif
     private static let walletKey = "smt_wallet"
 
     static func save(walletData: WalletData) throws {

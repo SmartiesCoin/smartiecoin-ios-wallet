@@ -56,10 +56,11 @@ struct VersionMessage {
         senderAddress = NetworkAddress(services: data.readUInt64LE(at: 46), ip: "0.0.0.0", port: 0)
         nonce = data.readUInt64LE(at: 72)
 
+        let s = data.startIndex
         var offset = 80
         guard let uaLen = data.readVarInt(at: &offset) else { return nil }
         guard offset + uaLen + 4 <= data.count else { return nil }
-        userAgent = String(data: data.subdata(in: offset..<(offset + uaLen)), encoding: .utf8) ?? ""
+        userAgent = String(data: data.subdata(in: (s + offset)..<(s + offset + uaLen)), encoding: .utf8) ?? ""
         offset += uaLen
         startHeight = data.readInt32LE(at: offset)
         offset += 4
@@ -114,6 +115,7 @@ struct HeadersMessage {
     let headers: [BlockHeader]
 
     init?(from data: Data) {
+        let s = data.startIndex
         var offset = 0
         guard let count = data.readVarInt(at: &offset) else { return nil }
         guard count <= P2PConfig.maxHeaders else { return nil }
@@ -121,7 +123,7 @@ struct HeadersMessage {
         var hdrs = [BlockHeader]()
         for _ in 0..<count {
             guard offset + 80 <= data.count else { return nil }
-            let headerData = data.subdata(in: offset..<(offset + 80))
+            let headerData = data.subdata(in: (s + offset)..<(s + offset + 80))
             guard let header = BlockHeader(from: headerData) else { return nil }
             hdrs.append(header)
             offset += 80
@@ -196,8 +198,9 @@ struct MerkleBlockMessage {
 
     init?(from data: Data) {
         guard data.count >= 84 else { return nil }
+        let s = data.startIndex
 
-        let headerData = data.prefix(80)
+        let headerData = data.subdata(in: s..<(s + 80))
         guard let hdr = BlockHeader(from: headerData) else { return nil }
         self.header = hdr
 
@@ -209,14 +212,14 @@ struct MerkleBlockMessage {
         var hashes = [Data]()
         for _ in 0..<hashCount {
             guard offset + 32 <= data.count else { return nil }
-            hashes.append(data.subdata(in: offset..<(offset + 32)))
+            hashes.append(data.subdata(in: (s + offset)..<(s + offset + 32)))
             offset += 32
         }
         self.hashes = hashes
 
         guard let flagCount = data.readVarInt(at: &offset) else { return nil }
         guard offset + flagCount <= data.count else { return nil }
-        self.flags = data.subdata(in: offset..<(offset + flagCount))
+        self.flags = data.subdata(in: (s + offset)..<(s + offset + flagCount))
     }
 }
 
@@ -252,6 +255,7 @@ struct AddrMessage {
     let addresses: [PeerAddr]
 
     init?(from data: Data) {
+        let s = data.startIndex
         var offset = 0
         guard let count = data.readVarInt(at: &offset) else { return nil }
 
@@ -265,14 +269,14 @@ struct AddrMessage {
             let ipStart = offset + 12 + 12  // skip services(8) + IPv6 prefix(12)
             let ip: String
             if ipStart + 4 <= data.count {
-                ip = "\(data[ipStart]).\(data[ipStart+1]).\(data[ipStart+2]).\(data[ipStart+3])"
+                ip = "\(data[s + ipStart]).\(data[s + ipStart+1]).\(data[s + ipStart+2]).\(data[s + ipStart+3])"
             } else {
                 ip = "0.0.0.0"
             }
 
             let portOffset = offset + 12 + 16
             let port: UInt16 = portOffset + 2 <= data.count
-                ? (UInt16(data[portOffset]) << 8) | UInt16(data[portOffset + 1])
+                ? (UInt16(data[s + portOffset]) << 8) | UInt16(data[s + portOffset + 1])
                 : 0
 
             addrs.append(PeerAddr(timestamp: timestamp, services: services, ip: ip, port: port))

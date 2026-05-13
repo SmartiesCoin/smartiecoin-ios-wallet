@@ -16,18 +16,32 @@ targets:
     platform: iOS
     sources:
       - path: SmartiecoinWallet
+        excludes:
+          - "Crypto/yespower/sha256.c"
+          - "Crypto/yespower/yespower-opt.c"
+          - "Crypto/yespower/yespower-platform.c"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.node
         PRODUCT_NAME: "SMT Node"
-        MARKETING_VERSION: "2.0.0"
+        MARKETING_VERSION: "0.3.1"
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.9"
         INFOPLIST_FILE: SmartiecoinWallet/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SmartiecoinWallet/SmartiecoinWallet.entitlements
+        APS_ENVIRONMENT: development
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: true
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_SPV"
+        SWIFT_OBJC_BRIDGING_HEADER: SmartiecoinWallet/Crypto/yespower/SmartiecoinWallet-Bridging-Header.h
+        CLANG_ENABLE_MODULES: YES
+        GCC_C_LANGUAGE_STANDARD: gnu11
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production
     dependencies:
       - package: secp256k1
       - framework: Network.framework
@@ -40,17 +54,31 @@ targets:
     platform: iOS
     sources:
       - path: SmartiecoinWallet
+        excludes:
+          - "Crypto/yespower/sha256.c"
+          - "Crypto/yespower/yespower-opt.c"
+          - "Crypto/yespower/yespower-platform.c"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.smartiecoin.lite
         PRODUCT_NAME: "SMT Lite"
-        MARKETING_VERSION: "2.0.0"
+        MARKETING_VERSION: "0.3.1"
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.9"
         INFOPLIST_FILE: SmartiecoinWallet/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SmartiecoinWallet/SmartiecoinWallet.entitlements
+        APS_ENVIRONMENT: development
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: true
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "WALLET_MODE_API"
+        SWIFT_OBJC_BRIDGING_HEADER: SmartiecoinWallet/Crypto/yespower/SmartiecoinWallet-Bridging-Header.h
+        CLANG_ENABLE_MODULES: YES
+        GCC_C_LANGUAGE_STANDARD: gnu11
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production
     dependencies:
       - package: secp256k1

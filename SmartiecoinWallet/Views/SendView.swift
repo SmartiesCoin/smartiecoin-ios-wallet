@@ -19,6 +19,13 @@ struct SendView: View {
         return Double(balance.balance) / Double(SmartiecoinNetwork.coin)
     }
 
+    // Conservative fee buffer for MAX: covers ~5 inputs + 1 output at default fee rate
+    private var maxSendableSmt: Double {
+        let feeBufferDuffs = 10_000  // 0.0001 SMT, safe for typical UTXO counts
+        let sendable = max(0, (balance?.balance ?? 0) - feeBufferDuffs)
+        return Double(sendable) / Double(SmartiecoinNetwork.coin)
+    }
+
     enum SendStep {
         case form, confirm, sending, success
     }
@@ -87,7 +94,7 @@ struct SendView: View {
             HStack {
                 Spacer()
                 Button("MAX") {
-                    amount = String(format: "%.8f", availableSmt)
+                    amount = String(format: "%.8f", maxSendableSmt)
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundColor(AppColors.primary)
@@ -152,7 +159,10 @@ struct SendView: View {
             }
 
             HStack(spacing: 12) {
-                Button(action: { step = .form }) {
+                Button(action: {
+                    error = nil
+                    step = .form
+                }) {
                     Text("Back")
                 }
                 .buttonStyle(SecondaryButtonStyle())

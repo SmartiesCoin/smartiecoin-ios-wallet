@@ -24,6 +24,20 @@ enum WalletService {
         return (privateKey, mnemonic)
     }
 
+    static func changePassword(walletData: WalletData, currentPassword: String, newPassword: String) throws -> WalletData {
+        let mnemonic = try WalletEncryption.decrypt(encryptedHex: walletData.encryptedMnemonic, password: currentPassword)
+        let privKeyHex = try WalletEncryption.decrypt(encryptedHex: walletData.encryptedPrivKey, password: currentPassword)
+
+        let encryptedMnemonic = try WalletEncryption.encrypt(plaintext: mnemonic, password: newPassword)
+        let encryptedPrivKey = try WalletEncryption.encrypt(plaintext: privKeyHex, password: newPassword)
+
+        return WalletData(
+            address: walletData.address,
+            encryptedMnemonic: encryptedMnemonic,
+            encryptedPrivKey: encryptedPrivKey
+        )
+    }
+
     static func saveWallet(_ walletData: WalletData) throws {
         try KeychainService.save(walletData: walletData)
     }

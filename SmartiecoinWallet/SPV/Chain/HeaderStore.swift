@@ -1,17 +1,19 @@
 import Foundation
 
-/// Thread-safe storage for block headers, transactions, and UTXOs
+/// Thread-safe storage for block headers, transactions, and UTXOs.
+/// Headers are indexed by height. The tip's yespower hash is computed once per batch
+/// (yespower is too expensive to compute per header).
 final class HeaderStore {
     private let lock = NSLock()
-    private var headers: [Data: BlockHeader] = [:]
-    private var heightIndex: [Int: Data] = [:]
-    private var tipHash: Data?
+    private var headersByHeight: [Int: BlockHeader] = [:]
     private var _tipHeight: Int = 0
+    private var _tipHash: Data?
 
     private var confirmedTxs: [String: SPVTransaction] = [:]
     private var utxos: [String: SPVUtxo] = [:]
 
     private let storageURL: URL
+    private static let storageVersion = 2
 
     init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -29,30 +31,36 @@ final class HeaderStore {
     var chainTipHash: Data? {
         lock.lock()
         defer { lock.unlock() }
-        return tipHash
+        return _tipHash
     }
 
     func addHeaders(_ newHeaders: [BlockHeader]) -> Int {
+        guard !newHeaders.isEmpty else { return 0 }
+
         lock.lock()
-        defer { lock.unlock() }
+
+        if let currentTip = _tipHash {
+            guard newHeaders[0].prevHash == currentTip else {
+                lock.unlock()
+                return 0
+            }
+        }
 
         var added = 0
         for header in newHeaders {
-            let hash = header.blockHash
-            if headers[hash] != nil { continue }
-
-            if tipHash != nil && !header.linksTo(previousHash: tipHash!) {
-                if headers[header.prevHash] == nil && _tipHeight > 0 {
-                    continue
-                }
-            }
-
-            headers[hash] = header
             _tipHeight += 1
-            heightIndex[_tipHeight] = hash
-            tipHash = hash
+            headersByHeight[_tipHeight] = header
             added += 1
         }
+
+        let lastHeader = newHeaders.last!
+        lock.unlock()
+
+        let newTipHash = lastHeader.blockHash
+
+        lock.lock()
+        _tipHash = newTipHash
+        lock.unlock()
 
         if added > 0 { saveToDisk() }
         return added
@@ -61,29 +69,36 @@ final class HeaderStore {
     func getBlockLocator() -> [Data] {
         lock.lock()
         defer { lock.unlock() }
+        if let tip = _tipHash { return [tip] }
+        return []
+    }
 
-        var locator = [Data]()
-        var height = _tipHeight
-        var step = 1
-
-        while height > 0 {
-            if let hash = heightIndex[height] {
-                locator.append(hash)
-            }
-            if locator.count >= 10 { step *= 2 }
-            height -= step
-        }
-
-        if let genesisHash = heightIndex[0], locator.last != genesisHash {
-            locator.append(genesisHash)
-        }
-
-        return locator
+    func header(at height: Int) -> BlockHeader? {
+        lock.lock()
+        defer { lock.unlock() }
+        return headersByHeight[height]
     }
 
     func addTransaction(_ tx: SPVTransaction) {
         lock.lock()
-        confirmedTxs[tx.txid] = tx
+        // If an outgoing tx was previously recorded optimistically (sent > 0),
+        // preserve its sent amount so self-sends and normal sends keep showing
+        // as "Sent" after the network version arrives and gets re-parsed.
+        if let existing = confirmedTxs[tx.txid], existing.sent > 0 {
+            let merged = SPVTransaction(
+                txid: tx.txid,
+                blockHash: tx.blockHash ?? existing.blockHash,
+                blockHeight: tx.blockHeight ?? existing.blockHeight,
+                timestamp: existing.timestamp,
+                involvedAddresses: existing.involvedAddresses,
+                sent: existing.sent,
+                received: existing.received,
+                rawHex: tx.rawHex ?? existing.rawHex
+            )
+            confirmedTxs[tx.txid] = merged
+        } else {
+            confirmedTxs[tx.txid] = tx
+        }
         lock.unlock()
         saveToDisk()
     }
@@ -122,11 +137,10 @@ final class HeaderStore {
 
     func reset() {
         lock.lock()
-        headers.removeAll()
-        heightIndex.removeAll()
+        headersByHeight.removeAll()
         confirmedTxs.removeAll()
         utxos.removeAll()
-        tipHash = nil
+        _tipHash = nil
         _tipHeight = 0
         lock.unlock()
 
@@ -138,10 +152,12 @@ final class HeaderStore {
 
     private func saveToDisk() {
         lock.lock()
+        let orderedHeaders = (1..._tipHeight).compactMap { headersByHeight[$0] }
         let state = SPVState(
+            version: HeaderStore.storageVersion,
             tipHeight: _tipHeight,
-            tipHash: tipHash?.hexString,
-            headers: Array(headers.values),
+            tipHash: _tipHash?.hexString,
+            headers: orderedHeaders,
             transactions: Array(confirmedTxs.values),
             utxos: Array(utxos.values)
         )
@@ -160,29 +176,22 @@ final class HeaderStore {
         guard let data = try? Data(contentsOf: url),
               let state = try? JSONDecoder().decode(SPVState.self, from: data) else { return }
 
-        for header in state.headers {
-            headers[header.blockHash] = header
+        // Discard chain state from older incompatible format
+        guard (state.version ?? 1) >= HeaderStore.storageVersion else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+
+        for (i, header) in state.headers.enumerated() {
+            headersByHeight[i + 1] = header
         }
         _tipHeight = state.tipHeight
         if let hashHex = state.tipHash {
-            tipHash = Data(hexString: hashHex)
+            _tipHash = Data(hexString: hashHex)
         }
-        rebuildHeightIndex()
 
         for tx in state.transactions { confirmedTxs[tx.txid] = tx }
         for utxo in state.utxos { utxos["\(utxo.txid):\(utxo.outputIndex)"] = utxo }
-    }
-
-    private func rebuildHeightIndex() {
-        guard let tip = tipHash else { return }
-        var current: Data? = tip
-        var height = _tipHeight
-
-        while let hash = current, let header = headers[hash], height >= 0 {
-            heightIndex[height] = hash
-            current = header.prevHash
-            height -= 1
-        }
     }
 }
 
@@ -212,6 +221,7 @@ struct SPVUtxo: Codable {
 }
 
 struct SPVState: Codable {
+    let version: Int?
     let tipHeight: Int
     let tipHash: String?
     let headers: [BlockHeader]

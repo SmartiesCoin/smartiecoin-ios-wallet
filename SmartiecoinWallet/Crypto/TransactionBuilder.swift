@@ -11,7 +11,7 @@ struct UTXO {
 
 enum TransactionBuilder {
 
-    enum TransactionError: Error {
+    enum TransactionError: LocalizedError {
         case insufficientFunds
         case invalidAddress
         case invalidUTXO
@@ -19,6 +19,25 @@ enum TransactionBuilder {
         case signingFailed
         case invalidPrivateKey
         case noUTXOs
+
+        var errorDescription: String? {
+            switch self {
+            case .insufficientFunds:
+                return "Insufficient funds to cover amount plus network fee. Try sending a slightly smaller amount."
+            case .invalidAddress:
+                return "Invalid Smartiecoin address."
+            case .invalidUTXO:
+                return "Invalid transaction input (UTXO)."
+            case .belowDustThreshold:
+                return "Amount is below the dust threshold (546 duffs)."
+            case .signingFailed:
+                return "Failed to sign the transaction."
+            case .invalidPrivateKey:
+                return "Invalid private key."
+            case .noUTXOs:
+                return "No spendable coins available. Wait for the wallet to sync."
+            }
+        }
     }
 
     private static let dustThreshold = 546

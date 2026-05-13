@@ -21,7 +21,7 @@ enum P2PConfig {
     static let requiredServices: UInt64 = 1  // NODE_NETWORK
 
     // User agent
-    static let userAgent = "/SmartiecoinWallet:2.0.0/"
+    static let userAgent = "/SmartiecoinWallet:0.3.1/"
 
     // DNS seeds (from src/chainparams.cpp vSeeds)
     static let dnsSeeds: [String] = [
@@ -112,10 +112,11 @@ struct InvVector {
 
     init?(from data: Data, offset: inout Int) {
         guard offset + 36 <= data.count else { return nil }
+        let s = data.startIndex
         let typeRaw = data.readUInt32LE(at: offset)
         guard let t = InvType(rawValue: typeRaw) else { return nil }
         self.type = t
-        self.hash = data.subdata(in: (offset + 4)..<(offset + 36))
+        self.hash = data.subdata(in: (s + offset + 4)..<(s + offset + 36))
         offset += 36
     }
 }
@@ -132,11 +133,12 @@ struct P2PMessageHeader {
 
     init?(from data: Data) {
         guard data.count >= Self.size else { return nil }
+        let s = data.startIndex
         self.magic = data.readUInt32LE(at: 0)
-        guard let cmd = P2PCommand(fromBytes: data.subdata(in: 4..<16)) else { return nil }
+        guard let cmd = P2PCommand(fromBytes: data.subdata(in: (s+4)..<(s+16))) else { return nil }
         self.command = cmd
         self.payloadLength = data.readUInt32LE(at: 16)
-        self.checksum = data.subdata(in: 20..<24)
+        self.checksum = data.subdata(in: (s+20)..<(s+24))
     }
 }
 

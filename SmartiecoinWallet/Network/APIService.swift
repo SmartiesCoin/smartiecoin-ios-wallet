@@ -48,15 +48,16 @@ extension HistoryTx: Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         txid = try c.decode(String.self, forKey: .txid)
 
-        // Handle Int or Double for numeric fields
-        if let v = try? c.decode(Int.self, forKey: .sent) { sent = v }
-        else { sent = Int(try c.decode(Double.self, forKey: .sent)) }
+        // API returns sent/received/balance as floats in SMT units - convert to duffs
+        let coin = Double(SmartiecoinNetwork.coin)
+        let sentSmt = try c.decode(Double.self, forKey: .sent)
+        sent = Int(round(sentSmt * coin))
 
-        if let v = try? c.decode(Int.self, forKey: .received) { received = v }
-        else { received = Int(try c.decode(Double.self, forKey: .received)) }
+        let receivedSmt = try c.decode(Double.self, forKey: .received)
+        received = Int(round(receivedSmt * coin))
 
-        if let v = try? c.decode(Int.self, forKey: .balance) { balance = v }
-        else { balance = Int(try c.decode(Double.self, forKey: .balance)) }
+        let balanceSmt = try c.decode(Double.self, forKey: .balance)
+        balance = Int(round(balanceSmt * coin))
 
         if let v = try? c.decode(Int.self, forKey: .timestamp) { timestamp = v }
         else { timestamp = Int(try c.decode(Double.self, forKey: .timestamp)) }

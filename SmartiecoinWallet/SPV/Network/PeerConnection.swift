@@ -10,15 +10,48 @@ final class PeerConnection: @unchecked Sendable {
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "com.smartiecoin.peer")
     private var buffer = Data()
+    private let stateLock = NSLock()
 
-    // State
-    private(set) var isConnected = false
-    private(set) var isHandshakeComplete = false
-    private(set) var peerVersion: VersionMessage?
-    private(set) var peerHeight: Int32 = 0
-    private(set) var lastSeen = Date()
-    private(set) var bytesSent: Int = 0
-    private(set) var bytesReceived: Int = 0
+    // State (accessed via stateLock for thread safety)
+    private var _isConnected = false
+    private var _isHandshakeComplete = false
+    private var _peerVersion: VersionMessage?
+    private var _peerHeight: Int32 = 0
+    private var _lastSeen = Date()
+    private var _bytesSent: Int = 0
+    private var _bytesReceived: Int = 0
+    // Raw tx bytes we've announced via `inv` so we can serve them when the
+    // peer replies with `getdata`. Keyed by txid in wire (internal) byte order.
+    private var pendingTxs: [Data: Data] = [:]
+
+    var isConnected: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _isConnected
+    }
+    var isHandshakeComplete: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _isHandshakeComplete
+    }
+    var peerVersion: VersionMessage? {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _peerVersion
+    }
+    var peerHeight: Int32 {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _peerHeight
+    }
+    var lastSeen: Date {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _lastSeen
+    }
+    var bytesSent: Int {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _bytesSent
+    }
+    var bytesReceived: Int {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _bytesReceived
+    }
 
     // Callbacks
     var onConnected: (() -> Void)?
@@ -60,7 +93,9 @@ final class PeerConnection: @unchecked Sendable {
             case .preparing:
                 self.statusMessage = "preparing"
             case .ready:
-                self.isConnected = true
+                self.stateLock.lock()
+                self._isConnected = true
+                self.stateLock.unlock()
                 self.statusMessage = "TCP connected, sending version..."
                 self.onConnected?()
                 self.startReceiving()
@@ -68,11 +103,15 @@ final class PeerConnection: @unchecked Sendable {
             case .waiting(let error):
                 self.statusMessage = "waiting: \(error)"
             case .failed(let error):
-                self.isConnected = false
+                self.stateLock.lock()
+                self._isConnected = false
+                self.stateLock.unlock()
                 self.statusMessage = "failed: \(error)"
                 self.onDisconnected?(error)
             case .cancelled:
-                self.isConnected = false
+                self.stateLock.lock()
+                self._isConnected = false
+                self.stateLock.unlock()
                 self.statusMessage = "cancelled"
                 self.onDisconnected?(nil)
             @unknown default:
@@ -86,15 +125,19 @@ final class PeerConnection: @unchecked Sendable {
     func disconnect() {
         connection?.cancel()
         connection = nil
-        isConnected = false
-        isHandshakeComplete = false
+        stateLock.lock()
+        _isConnected = false
+        _isHandshakeComplete = false
+        stateLock.unlock()
     }
 
     // MARK: - Sending Messages
 
     func send(command: P2PCommand, payload: Data = Data()) {
         let message = P2PSerializer.buildMessage(command: command, payload: payload)
-        bytesSent += message.count
+        stateLock.lock()
+        _bytesSent += message.count
+        stateLock.unlock()
 
         connection?.send(content: message, completion: .contentProcessed { [weak self] error in
             if let error {
@@ -121,8 +164,10 @@ final class PeerConnection: @unchecked Sendable {
 
             if let data {
                 self.buffer.append(data)
-                self.bytesReceived += data.count
-                self.lastSeen = Date()
+                self.stateLock.lock()
+                self._bytesReceived += data.count
+                self._lastSeen = Date()
+                self.stateLock.unlock()
                 self.processBuffer()
             }
 
@@ -158,7 +203,8 @@ final class PeerConnection: @unchecked Sendable {
                 break  // Need more data
             }
 
-            let payload = buffer.subdata(in: P2PMessageHeader.size..<totalSize)
+            let s = buffer.startIndex
+            let payload = buffer.subdata(in: (s + P2PMessageHeader.size)..<(s + totalSize))
 
             // Verify checksum
             if P2PSerializer.verifyChecksum(payload: payload, expected: header.checksum) {
@@ -179,9 +225,24 @@ final class PeerConnection: @unchecked Sendable {
             handleVerack()
         case .ping:
             handlePing(payload)
+        case .getdata:
+            handleGetData(payload)
+            onMessage?(command, payload)
         default:
             // Forward to delegate
             onMessage?(command, payload)
+        }
+    }
+
+    private func handleGetData(_ payload: Data) {
+        guard let inv = InvMessage(from: payload) else { return }
+        for item in inv.inventory where item.type == .tx {
+            stateLock.lock()
+            let tx = pendingTxs[item.hash]
+            stateLock.unlock()
+            if let tx {
+                send(command: .tx, payload: tx)
+            }
         }
     }
 
@@ -190,14 +251,18 @@ final class PeerConnection: @unchecked Sendable {
             statusMessage = "bad version msg (\(payload.count) bytes)"
             return
         }
-        peerVersion = version
-        peerHeight = version.startHeight
+        stateLock.lock()
+        _peerVersion = version
+        _peerHeight = version.startHeight
+        stateLock.unlock()
         statusMessage = "got version v\(version.protocolVersion) h\(version.startHeight), sending verack"
         send(command: .verack)
     }
 
     private func handleVerack() {
-        isHandshakeComplete = true
+        stateLock.lock()
+        _isHandshakeComplete = true
+        stateLock.unlock()
         statusMessage = "handshake complete"
         send(command: .sendheaders)
         onHandshakeComplete?()
@@ -227,6 +292,20 @@ final class PeerConnection: @unchecked Sendable {
     }
 
     func broadcastTransaction(data: Data) {
+        // Txid on the wire is the double-SHA256 of the raw tx in natural
+        // (internal) byte order — NOT the display-reversed hex.
+        let txidInternal = Base58.doubleSHA256(data)
+
+        stateLock.lock()
+        pendingTxs[txidInternal] = data
+        stateLock.unlock()
+
+        // Announce via inv so standards-compliant peers request it with getdata.
+        let invMsg = InvMessage(inventory: [InvVector(type: .tx, hash: txidInternal)])
+        send(command: .inv, payload: invMsg.serialized)
+
+        // Also push the raw tx; most Bitcoin/Dash peers accept unsolicited tx,
+        // and this covers peers that don't follow up on the inv.
         send(command: .tx, payload: data)
     }
 

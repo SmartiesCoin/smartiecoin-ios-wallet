@@ -1,7 +1,9 @@
+import UIKit
 import SwiftUI
 
 @main
 struct SmartiecoinWalletApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var viewModel = WalletViewModel()
 
     var body: some Scene {
@@ -9,6 +11,30 @@ struct SmartiecoinWalletApp: App {
             ContentView(viewModel: viewModel)
                 .preferredColorScheme(.dark)
         }
+    }
+}
+
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        NotificationService.shared.configure()
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        NotificationService.shared.handleRegisteredDeviceToken(deviceToken)
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        NotificationService.shared.handleRegistrationError(error)
     }
 }
 
@@ -56,7 +82,11 @@ struct ContentView: View {
                 UnlockWalletView(
                     address: viewModel.walletData?.address ?? "",
                     onSubmit: { viewModel.unlock(password: $0) },
+                    onBiometricUnlock: { viewModel.unlockWithBiometrics() },
                     onDelete: { viewModel.logout() },
+                    biometricSupported: viewModel.biometricSupported,
+                    biometricAvailable: viewModel.biometricUnlockAvailable,
+                    biometryName: viewModel.biometryName,
                     loading: viewModel.loading,
                     error: viewModel.error
                 )
@@ -68,10 +98,46 @@ struct ContentView: View {
                     onSend: { viewModel.navigate(to: .send) },
                     onReceive: { viewModel.navigate(to: .receive) },
                     onHistory: { viewModel.navigate(to: .history) },
-                    onLogout: { viewModel.logout() },
+                    onLogout: { viewModel.lock() },
                     onRefresh: { viewModel.refreshBalance() },
                     onNetwork: { viewModel.navigate(to: .networkStatus) },
+                    onRevealKey: {
+                        viewModel.clearRevealedMnemonic()
+                        viewModel.navigate(to: .revealMnemonic)
+                    },
+                    onChangePassword: {
+                        viewModel.clearPasswordChangeState()
+                        viewModel.navigate(to: .changePassword)
+                    },
+                    biometricAvailable: viewModel.biometricUnlockAvailable,
+                    biometryName: viewModel.biometryName,
                     spvClient: viewModel.spvClient
+                )
+
+            case .changePassword:
+                ChangePasswordView(
+                    loading: viewModel.loading,
+                    error: viewModel.error,
+                    success: viewModel.passwordChanged,
+                    onSubmit: { current, new in
+                        viewModel.changePassword(currentPassword: current, newPassword: new)
+                    },
+                    onBack: {
+                        viewModel.clearPasswordChangeState()
+                        viewModel.navigate(to: .dashboard)
+                    }
+                )
+
+            case .revealMnemonic:
+                RevealMnemonicView(
+                    mnemonic: viewModel.revealedMnemonic,
+                    loading: viewModel.loading,
+                    error: viewModel.error,
+                    onSubmit: { viewModel.revealMnemonic(password: $0) },
+                    onBack: {
+                        viewModel.clearRevealedMnemonic()
+                        viewModel.navigate(to: .dashboard)
+                    }
                 )
 
             case .send:

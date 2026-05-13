@@ -77,6 +77,11 @@ struct NetworkStatusView: View {
             }
         }
         .background(AppColors.bg)
+        .onAppear {
+            if spvClient.syncState == .synchronized || spvClient.syncState == .syncing {
+                spvClient.requestTipRefresh()
+            }
+        }
         .alert("Add Peer", isPresented: $showAddPeer) {
             TextField("IP:Port (e.g. 192.168.1.100:9999)", text: $manualPeerInput)
             Button("Cancel", role: .cancel) { manualPeerInput = "" }

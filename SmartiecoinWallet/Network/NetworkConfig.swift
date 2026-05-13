@@ -10,10 +10,15 @@ enum SmartiecoinNetwork {
     static let bip32Public: UInt32 = 0x0488B21E
     static let bip32Private: UInt32 = 0x0488ADE4
 
-    // BIP44 coin type - kept at 5001 for compatibility with existing wallets
-    // Note: chainparams.cpp nExtCoinType = 5, but the web/mobile wallet uses 5001
+    // BIP44 coin type. Node mode follows Smartiecoin Core's nExtCoinType,
+    // while Lite mode keeps the legacy web/mobile derivation path.
+    #if WALLET_MODE_SPV
+    static let coinType: UInt32 = 5
+    static let derivationPath = "m/44'/5'/0'/0/0"
+    #else
     static let coinType: UInt32 = 5001
     static let derivationPath = "m/44'/5001'/0'/0/0"
+    #endif
 
     // Units: 1 SMT = 100,000,000 duffs
     static let coin: Int = 100_000_000

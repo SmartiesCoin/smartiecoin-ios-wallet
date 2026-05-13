@@ -1,58 +1,44 @@
 import Foundation
 
+/// Node wallet service. Queries the Smartiecoin explorer API as the source of
+/// truth for balance/history/UTXOs/broadcast, while keeping `SPVClient` running
+/// in the background for the Network Status view (peer list, chain sync).
+/// This avoids the "ghost transaction" problem that pure P2P broadcast had:
+/// peers silently drop unsolicited tx messages, so the only way to know a tx
+/// actually hit the mempool is to hear it back from the indexer.
 enum SPVWalletService {
     static var client: SPVClient?
 
-    static func fetchBalance(address: String) -> BalanceResponse {
-        guard let client else {
-            return BalanceResponse(balance: 0, received: 0, sent: 0)
-        }
-        let balance = client.getBalance(address: address)
-        let history = client.getHistory(address: address)
-        let totalReceived = history.reduce(0) { $0 + $1.received }
-        let totalSent = history.reduce(0) { $0 + $1.sent }
-        return BalanceResponse(balance: balance, received: totalReceived, sent: totalSent)
+    static func fetchBalance(address: String) async -> BalanceResponse {
+        (try? await APIService.fetchBalance(address: address))
+            ?? BalanceResponse(balance: 0, received: 0, sent: 0)
     }
 
-    static func fetchUTXOs(address: String) -> [UTXO] {
-        guard let client else { return [] }
-        return client.getUTXOs(address: address)
+    static func fetchUTXOs(address: String) async -> [UTXO] {
+        (try? await APIService.fetchUTXOs(address: address)) ?? []
     }
 
-    static func fetchHistory(address: String) -> [HistoryTx] {
-        guard let client else { return [] }
-        return client.getHistory(address: address).map {
-            HistoryTx(txid: $0.txid, sent: $0.sent, received: $0.received,
-                      balance: 0, timestamp: $0.timestamp)
-        }
-    }
-
-    static func broadcastTransaction(hex: String) throws -> String {
-        guard let client else {
-            throw WalletError.networkError("SPV client not running")
-        }
-        guard client.peerCount > 0 else {
-            throw WalletError.networkError("Not connected to any peers")
-        }
-        client.broadcastTransaction(rawHex: hex)
-        guard let txData = Data(hexString: hex) else {
-            throw WalletError.transactionFailed("Invalid transaction hex")
-        }
-        return Data(Base58.doubleSHA256(txData).reversed()).hexString
+    static func fetchHistory(address: String) async -> [HistoryTx] {
+        (try? await APIService.fetchHistory(address: address)) ?? []
     }
 
     static func sendTransaction(
         fromAddress: String, toAddress: String,
         amountDuffs: Int, privateKey: Data
     ) async throws -> (txid: String, fee: Int) {
-        let utxos = fetchUTXOs(address: fromAddress)
+        let utxos = try await APIService.fetchUTXOs(address: fromAddress)
         guard !utxos.isEmpty else { throw WalletError.insufficientFunds }
 
         let result = try TransactionBuilder.buildTransaction(
             fromAddress: fromAddress, toAddress: toAddress,
             amountDuffs: amountDuffs, privateKey: privateKey, utxos: utxos
         )
-        let txid = try broadcastTransaction(hex: result.hex)
+
+        // Broadcast via the indexer (authoritative, returns txid on success)
+        // and also push it over our P2P peers as a bonus relay.
+        let txid = try await APIService.broadcastTransaction(hex: result.hex)
+        client?.broadcastTransaction(rawHex: result.hex)
+
         return (txid, result.fee)
     }
 }

@@ -11,9 +11,9 @@ struct BlockHeader: Codable, Identifiable {
 
     var id: Data { blockHash }
 
-    // Block hash = double SHA256 of the 80-byte header (reversed for display)
+    // Block hash = yespower of the 80-byte header (Smartiecoin uses YesPower, not double SHA256)
     var blockHash: Data {
-        Base58.doubleSHA256(serialized)
+        YesPower.hash(headerBytes: serialized)
     }
 
     var blockHashHex: String {
@@ -42,9 +42,10 @@ struct BlockHeader: Codable, Identifiable {
 
     init?(from data: Data) {
         guard data.count >= 80 else { return nil }
+        let s = data.startIndex
         self.version = data.readInt32LE(at: 0)
-        self.prevHash = Data(data.subdata(in: 4..<36))
-        self.merkleRoot = Data(data.subdata(in: 36..<68))
+        self.prevHash = Data(data.subdata(in: (s+4)..<(s+36)))
+        self.merkleRoot = Data(data.subdata(in: (s+36)..<(s+68)))
         self.timestamp = data.readUInt32LE(at: 68)
         self.bits = data.readUInt32LE(at: 72)
         self.nonce = data.readUInt32LE(at: 76)

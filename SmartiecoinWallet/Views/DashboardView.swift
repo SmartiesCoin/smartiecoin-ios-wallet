@@ -10,9 +10,15 @@ struct DashboardView: View {
     let onLogout: () -> Void
     let onRefresh: () -> Void
     let onNetwork: () -> Void
+    let onRevealKey: () -> Void
+    let onChangePassword: () -> Void
+    let biometricAvailable: Bool
+    let biometryName: String
     var spvClient: SPVClient?
 
     @State private var isRefreshing = false
+    @State private var showStartP2PAlert = false
+    @State private var didCheckP2PState = false
 
     private var balanceDisplay: String {
         guard let balance else { return "---" }
@@ -38,6 +44,34 @@ struct DashboardView: View {
                         }
 
                         Spacer()
+
+                        if biometricAvailable {
+                            HStack(spacing: 4) {
+                                Image(systemName: biometryName == "Touch ID" ? "touchid" : "faceid")
+                                    .font(.caption)
+                                Text("Ready")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .foregroundColor(AppColors.success)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(AppColors.success.opacity(0.12))
+                            .clipShape(Capsule())
+                        }
+
+                        Button(action: onRevealKey) {
+                            Image(systemName: "key.fill")
+                                .font(.subheadline)
+                                .foregroundColor(AppColors.primary)
+                                .padding(8)
+                        }
+
+                        Button(action: onChangePassword) {
+                            Image(systemName: "lock.rotation")
+                                .font(.subheadline)
+                                .foregroundColor(AppColors.primary)
+                                .padding(8)
+                        }
 
                         Button(action: onLogout) {
                             HStack(spacing: 4) {
@@ -98,6 +132,24 @@ struct DashboardView: View {
             }
         }
         .background(AppColors.bg)
+        .onAppear {
+            onRefresh()
+        }
+        #if WALLET_MODE_SPV
+        .onAppear {
+            guard !didCheckP2PState else { return }
+            didCheckP2PState = true
+            if let spv = spvClient, spv.syncState == .disconnected {
+                showStartP2PAlert = true
+            }
+        }
+        .alert("Start P2P Network", isPresented: $showStartP2PAlert) {
+            Button("Go to Network") { onNetwork() }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text("The P2P network is not running. Tap \"Go to Network\" and press Start P2P to connect to peers and sync the blockchain.")
+        }
+        #endif
     }
 
     // MARK: - Balance Card
